@@ -5,6 +5,8 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
+script_root=$(dirname ${BASH_SOURCE[0]})
+
 function dkcl(){
         CONTAINER_IDS=$(docker ps -aq)
 	echo
@@ -31,7 +33,7 @@ function restartNetwork() {
 	echo
 
         #teardown the network and clean the containers and intermediate images
-	cd artifacts
+	cd ${script_root}/artifacts
 	docker-compose down
 	dkcl
 	dkrm
@@ -48,4 +50,4 @@ function restartNetwork() {
 
 restartNetwork
 
-killall node
+killall node || true

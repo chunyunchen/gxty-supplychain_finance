@@ -5,6 +5,8 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
+script_root=$(dirname ${BASH_SOURCE[0]})
+
 function dkcl(){
         CONTAINER_IDS=$(docker ps -aq)
 	echo
@@ -31,7 +33,7 @@ function restartNetwork() {
 	echo
 
         #teardown the network and clean the containers and intermediate images
-	cd artifacts
+	cd ${script_root}/artifacts
 	docker-compose down
 	dkcl
 	dkrm
@@ -41,24 +43,27 @@ function restartNetwork() {
 
 	#Start the network
 	docker-compose up -d
-	cd -
 	echo
 }
 
 function installNodeModules() {
-	echo
-	if [ -d node_modules ]; then
+	cd $script_root
+
+	if [ -d ${script_root}/node_modules ]; then
 		echo "============== node modules installed already ============="
 	else
 		echo "============== Installing node modules ============="
-		npm install
+		/usr/local/node/bin/npm install
 	fi
 	echo
 }
 
+function start_node_app()
+{
+	cd $script_root
+	PORT=4000 nohup /usr/local/node/bin/node app >> setup.log &
+}
 
-restartNetwork
-
+restartNetwork 
 installNodeModules
-
-PORT=4000 node app
+start_node_app
