@@ -553,28 +553,31 @@ func getQueryResultForQueryStringWithPagination(stub shim.ChaincodeStubInterface
 	}
 	defer resultsIterator.Close()
 
-	buffer, err := constructQueryResponseFromIterator(resultsIterator)
+	bf_data, err := constructQueryResponseFromIterator(resultsIterator)
 	if err != nil {
 		return nil, err
 	}
 
-	addPaginationMetadataToQueryResults(buffer, responseMetadata)
+	bf_meta := constructPaginationMetadataToQueryResults(responseMetadata)
 
-	return buffer.Bytes(), nil
+	bf := constructJsonArray(bf_meta, bf_data)
+
+	return bf.Bytes(), nil
 }
 
-func addPaginationMetadataToQueryResults(buffer *bytes.Buffer, responseMetadata *pb.QueryResponseMetadata) *bytes.Buffer {
+func constructPaginationMetadataToQueryResults(responseMetadata *pb.QueryResponseMetadata) *bytes.Buffer {
+	var buffer bytes.Buffer
 
-	buffer.WriteString("[{\"ResponseMetadata\":{\"RecordsCount\":")
+	buffer.WriteString("{\"ResponseMetadata\":{\"RecordsCount\":")
 	buffer.WriteString("\"")
 	buffer.WriteString(fmt.Sprintf("%v", responseMetadata.FetchedRecordsCount))
 	buffer.WriteString("\"")
 	buffer.WriteString(", \"Bookmark\":")
 	buffer.WriteString("\"")
 	buffer.WriteString(responseMetadata.Bookmark)
-	buffer.WriteString("\"}}]")
+	buffer.WriteString("\"}}")
 
-	return buffer
+	return &buffer
 }
 
 //queryBills 查询票据发起人、持有人、还款人的所有票据
@@ -606,12 +609,28 @@ func getQueryResultForQueryString(stub shim.ChaincodeStubInterface, queryString 
 		return nil, err
 	}
 
-	return buffer.Bytes(), nil
+	bf := constructJsonArray(buffer)
+
+	return bf.Bytes(), nil
+}
+
+func constructJsonArray(bufs... *bytes.Buffer) *bytes.Buffer {
+	var buffer bytes.Buffer
+
+	buffer.WriteString("[")
+	for i, b := range bufs {
+		if i != 0 {
+			buffer.WriteString(",")
+		}
+		buffer.Write(b.Bytes())
+	}
+	buffer.WriteString("]")
+
+	return &buffer
 }
 
 func constructQueryResponseFromIterator(resultsIterator shim.StateQueryIteratorInterface) (*bytes.Buffer, error) {
 	var buffer bytes.Buffer
-	buffer.WriteString("[")
 
 	bArrayMemberAlreadyWritten := false
 	for resultsIterator.HasNext() {
@@ -634,7 +653,6 @@ func constructQueryResponseFromIterator(resultsIterator shim.StateQueryIteratorI
 		buffer.WriteString("}")
 		bArrayMemberAlreadyWritten = true
 	}
-	buffer.WriteString("]")
 
 	return &buffer, nil
 }
