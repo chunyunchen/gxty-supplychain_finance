@@ -28,18 +28,18 @@ type Bill struct {
 	BillID		string	`json:"bill_id"`	//票据号
 	Amount		float64	`json:"amount"`		//票据金额
 	AmountUnit	string	`json:"amount_unit"`	//金额单位，元或美元等
-	IssueDate	string	`json:"issue_date"`	//票据出票日期
-	DueDate		string	`json:"due_date"`	//票据到期日期
+	IssueDate	int64	`json:"issue_date"`	//票据出票日期
+	DueDate		int64	`json:"due_date"`	//票据到期日期
 	PyeeName	string	`json:"pyee_name"`	//收款人名称
 	PyeeID		string	`json:"pyee_id"`	//收款人身份号
 	PyeeAcct	string	`json:"pyee_acct"`	//收款人账户
-	Drawee		string	`json:"-"`		//还款人账号
+	Drawee		string	`json:"drawee"`		//还款人账号
 	DraweeName	string	`json:"drawee_name"`	//还款人名称
-	Issuer		string	`json:"-"`		//票据发起人账号
+	Issuer		string	`json:"issuer"`		//票据发起人账号
 	IssuerName	string	`json:"issuer_name"`	//票据发起人名称
-	Bank		string	`json:"-"`		//金融机构账号
-	BankeName	string	`json:"-"`		//金融机构名称
-	Owner		string	`json:"-"`		//持票人账号
+	Bank		string	`json:"bank,omitempty"`		//金融机构账号
+	BankeName	string	`json:"bank_name,omitempty"`		//金融机构名称
+	Owner		string	`json:"owner"`		//持票人账号
 	OwnerName	string	`json:"owner_name"`	//持票人名称
 	State		string	`json:"state"`		//票据状态(omitempty,json反序列化显示给客户端时不返回空字段)
 }
@@ -237,7 +237,8 @@ func (sfb *SupplyFinanceBill) issueObj(stub shim.ChaincodeStubInterface, bill *B
 	}
 
 	// 设置票据的状态
-	bill.State = BillIssued
+	//bill.State = BillIssued
+	bill.State = BillEndorsed
 
 	// 保存票据
 	_, ok := sfb.putBill(stub, *bill)
