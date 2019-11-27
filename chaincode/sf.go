@@ -619,7 +619,7 @@ func constructJsonArray(bufs... *bytes.Buffer) *bytes.Buffer {
 
 	buffer.WriteString("[")
 	for i, b := range bufs {
-		if i != 0 {
+		if i != 0 && b.Len() > 0 {
 			buffer.WriteString(",")
 		}
 		buffer.Write(b.Bytes())
