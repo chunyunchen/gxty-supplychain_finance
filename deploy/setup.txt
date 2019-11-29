@@ -1,4 +1,4 @@
-本机部署步骤（以fabric-1.4.4为例子）
+本机部署步骤（以fabric-1.4.4搭建solo共识为例）
 !!!特别重要!!!：配置文件版本[configtx.yaml/crypto-config.yaml/core.yaml/orderer.yaml]必须与fabric版本对应一致
 
 0）设置 FABRIC_CFG_PATH，并拷贝样例配置文件（peer和orderer启动时从该路径下分别读取core.yaml和orderer.yaml）

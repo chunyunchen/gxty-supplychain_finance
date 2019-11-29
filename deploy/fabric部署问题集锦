@@ -1,0 +1,15 @@
+ 部署fabric问题集锦：
+ 
+ 1、docker启动peer时异常退出，提示"unexpected signal during runtime execution"
+ 解决：peer和orderer的docker-compose的yaml文件中添加环境变量在GODEBUG=netdns=go
+ 如下：
+ peer-base:
+image: hyperledger/fabric-peer
+environment:
+  - GODEBUG=netdns=go 
+  - CORE_VM_ENDPOINT=unix:///host/var/run/docker.sock
+  <....>
+ 参考：https://stackoverflow.com/questions/55016301/unexpected-signal-during-runtime-execution-signal-sigsegv-segmentation-violati
+ 
+ 2. 启动orderer时异常退出，提示“Error reading configuration: Unsupported Config Type ""”
+ 解决：设置环境变量FABRIC_CFG_PATH为包含configtx.yaml和orderer.yaml的绝对路径，因为orderer需要读取这两个配置文件
