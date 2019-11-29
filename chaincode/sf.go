@@ -56,7 +56,6 @@ type LoanResult struct {
 	RefuseReason	string	`json:"refused_reason"`	//拒绝贷款原因
 }
 
-
 //Bill 票据基本结构
 type Bill struct {
 	ParentID	string	`json:"parent_id"`	//票据来源，生成票据的合同号或被拆分的票据号
@@ -78,6 +77,12 @@ type Bill struct {
 	SplitCount	int32	`json:"split_count"`    //控制原始票据拆分次数，该值表示当前票据是通过几次拆分而生成的
 }
 
+const Parent_Child_Key_Prefix = "PC_"
+//ParentChilds 拆分后父子票据关系基本结构
+type ParentChilds struct {
+	ParentID	string		`json:"cd_parent_id"`	//父票据号
+	ChildBills	[]string	`json:"child_bills"`	//子票据号集合
+}
 
 //BillSplitInfo 票据拆分结构
 type BillSplitInfo struct {
@@ -143,6 +148,29 @@ func getRetString(code int, des string) string {
 		return ""
 	}
 	return string(b[:])
+}
+
+// 根据ID查询拆分后的子票据
+// args: 0 - 票据ID
+func (sfb *SupplyFinanceBill) queryBillChilds(stub shim.ChaincodeStubInterface, args []string) pb.Response {
+	if len(args) != 1 {
+		res := getRetString(1, "Chaincode queryBillChilds args != 1")
+		return shim.Error(res)
+	}
+
+	key := Parent_Child_Key_Prefix + args[0]
+	objBytes, err := stub.GetState(key)
+	if  err != nil {
+		res := fmt.Sprintf("Chaincode queryBillChilds failed: %s", err.Error())
+		res = getRetString(1, res)
+		return shim.Error(res)
+	}
+
+	if objBytes == nil {
+		return shim.Success([]byte("{}"))
+	}
+
+	return shim.Success(objBytes)
 }
 
 // 根据ID查询记录
@@ -259,12 +287,15 @@ func (sfb *SupplyFinanceBill) Invoke(stub shim.ChaincodeStubInterface) pb.Respon
 	} else if function == "approveLoan" {
 		// 金融机构同意给票据持有人贷款
 		return sfb.approveLoan(stub, args)
+	} else if function == "queryBillChilds" {
+		// 查询票据拆分后的子票据ID集合
+		return sfb.queryBillChilds(stub, args)
 	} else if function == "queryByID" {
 		// 按唯一ID查询单条记录
 		return sfb.queryByID(stub, args)
-	} else if function == "queryBills" {
+	} else if function == "queryAll" {
 		// 按条件查询多条记录
-		return sfb.queryBills(stub, args)
+		return sfb.queryAll(stub, args)
 	} else if function == "queryBillsWithPagination" {
 		// 按条件分页查询
 		return sfb.queryBillsWithPagination(stub, args)
@@ -391,7 +422,7 @@ func issueLoanObj(stub shim.ChaincodeStubInterface, ln *Loan, init_state string)
 }
 
 //endorseLoan 担保贷款
-// args: 0 - Guarantor Name
+// args: 0 - Loan ID; 1 -Guarantor Name
 func (sfb *SupplyFinanceBill) endorseLoan(stub shim.ChaincodeStubInterface, args []string) pb.Response {
 	if len(args) != 2 {
 		res := getRetString(1, "Chaincode Invoke endorse args count expecting 2")
@@ -420,7 +451,7 @@ func (sfb *SupplyFinanceBill) endorseLoan(stub shim.ChaincodeStubInterface, args
 }
 
 //rejectLoan 拒绝担保贷款
-// args: 0 - Guarantor Name
+// args: 0 - Loan ID; 1 -Guarantor Name
 func (sfb *SupplyFinanceBill) rejectLoan(stub shim.ChaincodeStubInterface, args []string) pb.Response {
 	if len(args) != 2 {
 		res := getRetString(1, "Chaincode Invoke rejectLoan args count expecting 2")
@@ -481,23 +512,13 @@ func (sfb *SupplyFinanceBill) refuseLoan(stub shim.ChaincodeStubInterface, args 
 	loan.BankName = lr.BankName
 	loan.RefuseReason = lr.RefuseReason
 
-	// TODO: 需不需修改票据状态为endorsed?
-/*
-	bill, ok := getBillObj(stub, loan.BillID)
-	if !ok {
-		res := getRetString(1, "Chaincode Invoke refuseLoan get bill failed")
-		return shim.Error(res)
-	}
-
-	msg, ok := setBillStateThenPut(stub, &bill, BillLoanReady, Endorsed)
+	msg, ok := setLoanStateThenPut(stub, &loan, LoanApplied, LoanRefused)
 	if !ok {
 		res := getRetString(1, msg)
 		return shim.Error(res)
 	}
 
-*/
-
-	msg, ok := setLoanStateThenPut(stub, &loan, LoanApplied, LoanRefused)
+	msg, ok = tryUpdateBillForLoan(stub, loan.BillID, BillLoanReady, Endorsed)
 	if !ok {
 		res := getRetString(1, msg)
 		return shim.Error(res)
@@ -511,7 +532,7 @@ func (sfb *SupplyFinanceBill) refuseLoan(stub shim.ChaincodeStubInterface, args 
 // args: 0 - {LoanResult object}
 func (sfb *SupplyFinanceBill) approveLoan(stub shim.ChaincodeStubInterface, args []string) pb.Response {
 	if len(args) != 1 {
-		res := getRetString(1, "Chaincode Invoke refuseLoan args != 1")
+		res := getRetString(1, "Chaincode Invoke approveLoan args != 1")
 		return shim.Error(res)
 	}
 
@@ -519,37 +540,31 @@ func (sfb *SupplyFinanceBill) approveLoan(stub shim.ChaincodeStubInterface, args
 	err := json.Unmarshal([]byte(args[0]), &lr)
 
 	if err != nil {
-		res := getRetString(1, "Chaincode Invoke refuseLoan unmarshal failed")
+		res := getRetString(1, "Chaincode Invoke approveLoan unmarshal failed")
 		return shim.Error(res)
 	}
 
 	loan, ok := getLoanObj(stub, lr.LoanID)
 	if !ok {
-		res := getRetString(1, "Chaincode Invoke refuseLoan get loan error")
+		res := getRetString(1, "Chaincode Invoke approveLoan get loan error")
 		return shim.Error(res)
 	}
 
 	if loan.OwnerName != lr.OwnerName {
-		res := getRetString(1, "Chaincode Invoke refuseLoan failed: owner's name is not same with current's")
+		res := getRetString(1, "Chaincode Invoke approveLoan failed: owner's name is not same with current's")
 		return shim.Error(res)
 	}
 
 	loan.Bank = lr.Bank
 	loan.BankName = lr.BankName
 
-	bill, ok := getBillObj(stub, loan.BillID)
-	if !ok {
-		res := getRetString(1, "Chaincode Invoke approveLoan get bill failed")
-		return shim.Error(res)
-	}
-
-	msg, ok := setBillStateThenPut(stub, &bill, BillLoanReady, BillMorgaged)
+	msg, ok := setLoanStateThenPut(stub, &loan, LoanApplied, LoanApproved)
 	if !ok {
 		res := getRetString(1, msg)
 		return shim.Error(res)
 	}
 
-	msg, ok = setLoanStateThenPut(stub, &loan, LoanApplied, LoanApproved)
+	msg, ok = tryUpdateBillForLoan(stub, loan.BillID, BillLoanReady, BillMorgaged)
 	if !ok {
 		res := getRetString(1, msg)
 		return shim.Error(res)
@@ -815,6 +830,8 @@ func (sfb *SupplyFinanceBill) splitBill(stub shim.ChaincodeStubInterface, args [
 		return shim.Error(res)
 	}
 
+	child_bills := make([]string, 0)
+
 	b_child := b
 	b_child.ParentID = bsi.BillID
 	for _, bc := range bsi.Childs {
@@ -828,6 +845,8 @@ func (sfb *SupplyFinanceBill) splitBill(stub shim.ChaincodeStubInterface, args [
 			res := getRetString(1, msg)
 			return shim.Error(res)
 		}
+
+		child_bills = append(child_bills, bc.BillID)
 	}
 
 	b.State = BillSplit
@@ -837,9 +856,28 @@ func (sfb *SupplyFinanceBill) splitBill(stub shim.ChaincodeStubInterface, args [
 		return shim.Error(res)
 	}
 
+	msg, ok := putParentChilds(stub, bsi.BillID, child_bills)
+	if !ok {
+		return shim.Error(msg)
+	}
+
 	res := getRetByte(0, "invoke endorse success")
 	return shim.Success(res)
 
+}
+
+func putParentChilds(stub shim.ChaincodeStubInterface, parent_id string, child_bills []string) (string, bool) {
+	var pc ParentChilds
+	pc.ParentID = parent_id
+	pc.ChildBills = child_bills
+
+	key := Parent_Child_Key_Prefix + parent_id
+	_, ok := putObj(stub, key, pc)
+	if !ok {
+		return "Chaincode Invoke split save bill parent->childs relationship failed", false
+	}
+
+	return "Invoke success", true
 }
 
 //queryMarblesWithPagination 分页查询票据发起人、持有人、还款人的所有票据
@@ -898,12 +936,12 @@ func constructPaginationMetadataToQueryResults(responseMetadata *pb.QueryRespons
 	return &buffer
 }
 
-//queryBills 查询票据发起人、持有人、还款人的所有票据
-//  0 - Issuer|Drawee|Owner ;
-func (t *SupplyFinanceBill) queryBills(stub shim.ChaincodeStubInterface, args []string) pb.Response {
+//queryAll 返回所有符合条件的记录
+//  0 - {CouchDB selector query}
+func (t *SupplyFinanceBill) queryAll(stub shim.ChaincodeStubInterface, args []string) pb.Response {
 
 	if len(args) < 1 {
-		return shim.Error("Chaincode query[queryBills] failed: argument expecting 1")
+		return shim.Error("Chaincode query[queryAll] failed: argument expecting 1")
 	}
 
 	queryString := args[0]
