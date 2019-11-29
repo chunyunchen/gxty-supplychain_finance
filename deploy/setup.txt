@@ -1,0 +1,76 @@
+本机部署步骤（以fabric-1.4.4为例子）
+!!!特别重要!!!：配置文件版本[configtx.yaml/crypto-config.yaml/core.yaml/orderer.yaml]必须与fabric版本对应一致
+
+0）设置 FABRIC_CFG_PATH，并拷贝样例配置文件（peer和orderer启动时从该路径下分别读取core.yaml和orderer.yaml）
+cp ${fabric_src_repo}/sampleconfig/orderer.yaml ${fabric_src_repo}/sampleconfig/orderer.yaml $FABRIC_CFG_PATH
+
+1）生成orderer、peer、client等组件所需证书
+cryptogen generate --config=./crypto-config.yaml --output=./crypto-config
+
+2）生成创世区块
+configtxgen -outputBlock ./channel-artifacts/genesis.block -profile SingleSoloOrdererGenesis -channelID bcsf-sys-channel
+
+3）生成通道配置交易
+export CHANNEL_NAME=mycc
+configtxgen -outputCreateChannelTx  ./channel-artifacts/channel.tx -profile SingleSoloChannel -channelID $CHANNEL_NAME
+configtxgen --profile SingleSoloChannel -outputAnchorPeersUpdate ./channel-artifacts/Orgmspanchors.tx -channelID $CHANNEL_NAME -asOrg PeerMSP
+
+4）启动orderer
+export rootDir=$(pwd)
+export ORDERER_GENERAL_LOGLEVEL=DEBUG
+export ORDERER_GENERAL_TLS_ENABLED=false
+export ORDERER_GENERAL_PROFILE_ENABLED=false
+export ORDERER_GENERAL_LISTENADDRESS=0.0.0.0
+export ORDERER_GENERAL_LISTENPORT=7050
+export ORDERER_GENERAL_GENESISMETHOD=file
+export ORDERER_GENERAL_GENESISFILE=$rootDir/config/channel-artifacts/genesis.block
+export ORDERER_GENERAL_LOCALMSPDIR=$rootDir/config/crypto-config/ordererOrganizations/gtbcsf.com/orderers/orderer.gtbcsf.com/msp
+export ORDERER_GENERAL_LOCALMSPID=OrdererMSP
+export ORDERER_FILELEDGER_LOCATION=$rootDir/data/orderer
+orderer
+
+5）启动peer
+export rootDir=$(pwd)
+export CORE_PEER_ID=gtbcsf_org
+export CORE_CHAINCODE_MODE=dev
+export CORE_PEER_CHAINCODELISTENADDRESS=0.0.0.0:7052
+export CORE_PEER_NETWORKID=dev
+export CORE_LOGGING_LEVEL=DEBUG
+export CORE_PEER_TLS_ENABLED=false
+export CORE_PEER_PROFILE_ENABLED=false
+export CORE_PEER_ADDRESS=0.0.0.0:7051
+export CORE_PEER_LISTENADDRESS=0.0.0.0:7051
+export CORE_PEER_GOSSIP_ENDPOINT=0.0.0.0:7051
+export CORE_PEER_EVENTS_ADDRESS=0.0.0.0:7053
+export CORE_PEER_LOCALMSPID=PeerMSP
+export CORE_LEDGER_STATE_STATEDATABASE=goleveldb
+export CORE_PEER_MSPCONFIGPATH=$rootDir/config/crypto-config/peerOrganizations/gtbcsf.com/peers/peer.gtbcsf.com/msp
+export CORE_PEER_FILESYSTEMPATH=$rootDir/data/peer
+peer node start
+
+6）创建通道
+export rootDir=$(pwd)
+export CHANNEL_NAME=mycc
+export CORE_CHAINCODE_MODE=dev
+export CORE_PEER_ID=gtbcsf_org
+export CORE_PEER_ADDRESS=peer.gtbcsf.com:7051
+export CORE_PEER_LOCALMSPID=PeerMSP
+export CORE_PEER_MSPCONFIGPATH=$rootDir/config/crypto-config/peerOrganizations/gtbcsf.com/users/Admin@gtbcsf.com/msp
+peer channel create -o orderer.gtbcsf.com:7050 -c $CHANNEL_NAME -f  $rootDir/config/channel-artifacts/channel.tx --outputBlock ./data/$CHANNEL_NAME.block
+
+7）加入通道
+peer channel join -b ./data/$CHANNEL_NAME.block
+
+8）更新锚点peer到组织
+peer channel update -o orderer.gtbcsf.com:7050 -c $CHANNEL_NAME -f $rootDir/config/channel-artifacts/OrgMSPanchors.tx 
+
+9) 安装链码
+CHAINCODE_NAME=bcsf
+CHANNEL_NAME=mycc
+CHAINCODE_VERSION=1.0
+export rootDir=$(pwd)
+export CORE_PEER_ADDRESS=peer.gtbcsf.com:7051
+export CORE_PEER_LOCALMSPID=PeerMSP
+export CORE_PEER_MSPCONFIGPATH=$rootDir/config/crypto-config/peerOrganizations/gtbcsf.com/users/Admin@gtbcsf.com/msp
+#export CORE_PEER_TLS_ROOTCERT_FILE=$rootDir/config/crypto-config/peerOrganizations/gtbcsf.com/peers/peer.gtbcsf.com/tls/ca.crt
+peer chaincode install -n $CHAINCODE_NAME -v $CHAINCODE_VERSION -p chaincode/bcsf
