@@ -35,6 +35,8 @@ type Loan struct {
 	BillID		string	`json:"ln_bill_id"`	//票据号
 	Amount		float64	`json:"ln_amount"`	//贷款金额
 	AmountUnit	string	`json:"ln_amount_unit"`	//金额单位，元或美元等
+	BankRate	float64	`json:"bank_rate"`	//贷款利率
+	BankInterest	float64	`json:"bank_interest"`	//贷款利息
 	PyeeAcct	string	`json:"ln_pyee_acct"`	//收款人账户
 	Owner		string	`json:"ln_owner"`	//贷款人系统账号
 	OwnerName	string	`json:"ln_owner_name"`	//贷款人名称
