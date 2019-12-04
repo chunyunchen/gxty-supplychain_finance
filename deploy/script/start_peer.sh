@@ -47,7 +47,7 @@ orderer_tls_ca=$rootDir/config/crypto-config/ordererOrganizations/gtbcsf.com/ord
 
 orderer_ca_tls_opt=""
 if [[ "$CORE_PEER_TLS_ENABLED" == "true" ]]; then
-    orderer_ca_tls_opt="--tls $CORE_PEER_TLS_ENABLED --cafile $orderer_tls_ca"
+    orderer_ca_tls_opt="--tls --cafile $orderer_tls_ca"
 fi
 
 # generate scripts for channel and chaincode operations
@@ -96,7 +96,9 @@ export CORE_PEER_TLS_CERT_FILE=$CORE_PEER_TLS_CERT_FILE
 export CORE_PEER_TLS_KEY_FILE=$CORE_PEER_TLS_KEY_FILE
 export CORE_PEER_TLS_ROOTCERT_FILE=$CORE_PEER_TLS_ROOTCERT_FILE
 
-peer chaincode \$* $orderer_ca_tls_opt
+cmd="peer chaincode \$* $orderer_ca_tls_opt"
+echo "[COMMAND] \$cmd"
+eval \$cmd
 EOF
 
 chmod u+x peer.sh create_channel_and_update_anchor.sh
