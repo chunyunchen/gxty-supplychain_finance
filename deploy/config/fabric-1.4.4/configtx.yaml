@@ -15,22 +15,58 @@ Organizations:
                 Rule: "OR('OrdererMSP.admin')"
 
  
-    - &PeerOrg
-        Name: PeerMSP
-        ID: PeerMSP
-        MSPDir: crypto-config/peerOrganizations/gtbcsf.com/msp
+    - &FinanceOrg
+        Name: FinanceMSP
+        ID: FinanceMSP
+        MSPDir: crypto-config/peerOrganizations/finance.gtbcsf.com/msp
         Policies:
             Readers:
                 Type: Signature
-                Rule: "OR('PeerMSP.admin', 'PeerMSP.peer', 'PeerMSP.client')"
+                Rule: "OR('FinanceMSP.admin', 'FinanceMSP.peer', 'FinanceMSP.client')"
             Writers:
                 Type: Signature
-                Rule: "OR('PeerMSP.admin', 'PeerMSP.client')"
+                Rule: "OR('FinanceMSP.admin', 'FinanceMSP.client')"
             Admins:
                 Type: Signature
-                Rule: "OR('PeerMSP.admin')"
+                Rule: "OR('FinanceMSP.admin')"
         AnchorPeers:
-            - Host: peer.gtbcsf.com
+            - Host: peer0.finance.gtbcsf.com
+              Port: 7051
+ 
+    - &CoreEnterpriseOrg
+        Name: CoreEnterpriseMSP
+        ID: CoreEnterpriseMSP
+        MSPDir: crypto-config/peerOrganizations/coren.gtbcsf.com/msp
+        Policies:
+            Readers:
+                Type: Signature
+                Rule: "OR('CoreEnterpriseMSP.admin', 'CoreEnterpriseMSP.peer', 'CoreEnterpriseMSP.client')"
+            Writers:
+                Type: Signature
+                Rule: "OR('CoreEnterpriseMSP.admin', 'CoreEnterpriseMSP.client')"
+            Admins:
+                Type: Signature
+                Rule: "OR('CoreEnterpriseMSP.admin')"
+        AnchorPeers:
+            - Host: peer0.coren.gtbcsf.com
+              Port: 7051
+ 
+    - &SupplierOrg
+        Name: SupplierMSP
+        ID: SupplierMSP
+        MSPDir: crypto-config/peerOrganizations/supplier.gtbcsf.com/msp
+        Policies:
+            Readers:
+                Type: Signature
+                Rule: "OR('SupplierMSP.admin', 'SupplierMSP.peer', 'SupplierMSP.client')"
+            Writers:
+                Type: Signature
+                Rule: "OR('SupplierMSP.admin', 'SupplierMSP.client')"
+            Admins:
+                Type: Signature
+                Rule: "OR('SupplierMSP.admin')"
+        AnchorPeers:
+            - Host: peer0.supplier.gtbcsf.com
               Port: 7051
  
 Orderer: &OrdererDefaults
@@ -42,6 +78,11 @@ Orderer: &OrdererDefaults
         MaxMessageCount: 10
         AbsoluteMaxBytes: 99 MB
         PreferredMaxBytes: 512 KB
+    Kafka:
+        # Brokers: A list of Kafka brokers to which the orderer connects
+        # NOTE: Use IP:port notation
+        Brokers:
+            - 127.0.0.1:9092
     Organizations:
     Policies:
         Readers:
@@ -147,7 +188,74 @@ Channel: &ChannelDefaults
         <<: *ChannelCapabilities
 
 Profiles:
-    SingleSoloOrdererGenesis:
+    EtcdRaftOrdererGenesis:
+        <<: *ChannelDefaults
+        Capabilities:
+            <<: *ChannelCapabilities
+        Orderer:
+            <<: *OrdererDefaults
+            OrdererType: etcdraft
+            EtcdRaft:
+                Consenters:
+                - Host: orderer.gtbcsf.com
+                  Port: 7050
+                  ClientTLSCert: crypto-config/ordererOrganizations/gtbcsf.com/orderers/orderer.gtbcsf.com/tls/server.crt
+                  ServerTLSCert: crypto-config/ordererOrganizations/gtbcsf.com/orderers/orderer.gtbcsf.com/tls/server.crt
+                - Host: orderer2.gtbcsf.com
+                  Port: 7050
+                  ClientTLSCert: crypto-config/ordererOrganizations/gtbcsf.com/orderers/orderer2.gtbcsf.com/tls/server.crt
+                  ServerTLSCert: crypto-config/ordererOrganizations/gtbcsf.com/orderers/orderer2.gtbcsf.com/tls/server.crt
+                - Host: orderer3.gtbcsf.com
+                  Port: 7050
+                  ClientTLSCert: crypto-config/ordererOrganizations/gtbcsf.com/orderers/orderer3.gtbcsf.com/tls/server.crt
+                  ServerTLSCert: crypto-config/ordererOrganizations/gtbcsf.com/orderers/orderer3.gtbcsf.com/tls/server.crt
+            Addresses:
+                - orderer.gtbcsf.com:7050
+                - orderer2.gtbcsf.com:7050
+                - orderer3.gtbcsf.com:7050
+
+            Organizations:
+            - *OrdererOrg
+            Capabilities:
+                <<: *OrdererCapabilities
+        Application:
+            <<: *ApplicationDefaults
+            Organizations:
+            - <<: *OrdererOrg
+        Consortiums:
+            SampleConsortium:
+                Organizations:
+                - *FinanceOrg
+                - *SupplierOrg
+                - *CoreEnterpriseOrg
+
+    KafkaOrdererGenesis:
+        <<: *ChannelDefaults
+        Capabilities:
+            <<: *ChannelCapabilities
+        Orderer:
+            <<: *OrdererDefaults
+            OrdererType: kafka
+            Kafka:
+                Brokers:
+                - kafka.gtbcsf.com:9092
+
+            Organizations:
+            - *OrdererOrg
+            Capabilities:
+                <<: *OrdererCapabilities
+        Application:
+            <<: *ApplicationDefaults
+            Organizations:
+            - <<: *OrdererOrg
+        Consortiums:
+            SampleConsortium:
+                Organizations:
+                - *FinanceOrg
+                - *SupplierOrg
+                - *CoreEnterpriseOrg
+
+    SoloOrdererGenesis:
         <<: *ChannelDefaults
         Orderer:
             <<: *OrdererDefaults
@@ -158,13 +266,26 @@ Profiles:
         Consortiums:
             SampleConsortium:
                 Organizations:
-                    - *PeerOrg
-    SingleSoloChannel:
+                    - *CoreEnterpriseOrg
+
+    ThreeOrgsChannel:
         Consortium: SampleConsortium
         <<: *ChannelDefaults
         Application:
             <<: *ApplicationDefaults
             Organizations:
-                - *PeerOrg
+                - *FinanceOrg
+                - *SupplierOrg
+                - *CoreEnterpriseOrg
+            Capabilities:
+                <<: *ApplicationCapabilities
+
+    OneOrgChannel:
+        Consortium: SampleConsortium
+        <<: *ChannelDefaults
+        Application:
+            <<: *ApplicationDefaults
+            Organizations:
+                - *CoreEnterpriseOrg
             Capabilities:
                 <<: *ApplicationCapabilities

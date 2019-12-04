@@ -18,6 +18,8 @@ OrdererOrgs:
     # ---------------------------------------------------------------------------
     Specs:
       - Hostname: orderer
+      - Hostname: orderer2
+      - Hostname: orderer3
 
 # ---------------------------------------------------------------------------
 # "PeerOrgs" - Definition of organizations managing peer nodes
@@ -26,8 +28,8 @@ PeerOrgs:
   # ---------------------------------------------------------------------------
   # Org
   # ---------------------------------------------------------------------------
-  - Name: Peer 
-    Domain: gtbcsf.com
+  - Name: FinanceOrg
+    Domain: finance.gtbcsf.com
     EnableNodeOUs: true
     # ---------------------------------------------------------------------------
     # "Specs"
@@ -46,7 +48,7 @@ PeerOrgs:
     #                 Org.Domain, respectively.
     # ---------------------------------------------------------------------------
     Specs:
-        - Hostname: peer
+        - Hostname: peer0
     #   - Hostname: foo # implicitly "foo.org1.example.com"
     #     CommonName: foo27.org5.example.com # overrides Hostname-based FQDN set above
     #   - Hostname: bar
@@ -72,4 +74,18 @@ PeerOrgs:
     # Count: The number of user accounts _in addition_ to Admin
     # ---------------------------------------------------------------------------
     Users:
-      Count: 1
+      Count: 3
+  - Name: CoreEnterpriseOrg
+    Domain: coren.gtbcsf.com
+    EnableNodeOUs: true
+    Specs:
+        - Hostname: peer0
+    Users:
+       Count: 3
+  - Name: SupplierOrg
+    Domain: supplier.gtbcsf.com
+    EnableNodeOUs: true
+    Specs:
+        - Hostname: peer0
+    Users:
+       Count: 3
