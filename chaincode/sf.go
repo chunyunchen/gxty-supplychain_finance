@@ -79,6 +79,7 @@ type Contract struct {
 	Owner		string	`json:"ct_owner"`		//持有人系统账号
 	OwnerName	string	`json:"ct_owner_name"`	//持有人名称
 	State		string	`json:"ct_state"`		//合同状态
+	RefuseReason	string	`json:"refused_reason,omitempty"`	//拒绝担保合同原因
 }
 
 //Bill 票据基本结构
@@ -769,10 +770,10 @@ func setLoanStateThenPut(stub shim.ChaincodeStubInterface, loan *Loan, expected_
 }
 
 //endorseContract 担保合同
-//  args: 0 - Contract_No ; 1 - Drawee Name 
+//  args: 0 - Contract_No ; 1 - Drawee Name ; 2 - Bill ID
 func (sfb *SupplyFinance) endorseContract(stub shim.ChaincodeStubInterface, args []string) pb.Response {
-	if len(args) != 2 {
-		res := getRetString(1, "Chaincode Invoke endorse args count expecting 2")
+	if len(args) != 3 {
+		res := getRetString(1, "Chaincode Invoke endorse args count expecting 3")
 		return shim.Error(res)
 	}
 	// 根据票号取得票据
@@ -788,6 +789,30 @@ func (sfb *SupplyFinance) endorseContract(stub shim.ChaincodeStubInterface, args
 	}
 
 	msg, ok := setContractStateThenPut(stub, &ct, ContractUploaded, Endorsed)
+	if !ok {
+		res := getRetString(1, msg)
+		return shim.Error(res)
+
+	}
+
+	var bill Bill
+	bill.ParentID = ct.ContractID
+	bill.BillID = args[2]
+	bill.Amount = ct.Amount
+	bill.AmountUnit = ct.AmountUnit
+	bill.IssueDate = ct.IssueDate
+	bill.DueDate = ct.DueDate
+	bill.PyeeName = ct.PyeeName
+	bill.PyeeID = ct.PyeeID
+	bill.PyeeAcct = ct.PyeeAcct
+	bill.Drawee = ct.Drawee
+	bill.DraweeName = ct.DraweeName
+	bill.Issuer = ct.Issuer
+	bill.IssuerName = ct.IssuerName
+	bill.Owner = ct.Owner
+	bill.OwnerName = ct.OwnerName
+
+	msg, ok = sfb.issueBillObj(stub, &bill, -1, Endorsed)
 	if !ok {
 		res := getRetString(1, msg)
 		return shim.Error(res)
@@ -903,10 +928,10 @@ func setBillStateThenPut(stub shim.ChaincodeStubInterface, bill *Bill, expected_
 }
 
 //rejectContract 拒绝担保合同
-//  args: 0 - Contract_No ; 1 - Drawee Name 
+//  args: 0 - Contract_No ; 1 - Drawee Name ; 2 - Rejected Reason
 func (sfb *SupplyFinance) rejectContract(stub shim.ChaincodeStubInterface, args []string) pb.Response {
-	if len(args) != 2 {
-		res := getRetString(1, "Chaincode Invoke reject args count expecting 2")
+	if len(args) != 3 {
+		res := getRetString(1, "Chaincode Invoke reject args count expecting 3")
 		return shim.Error(res)
 	}
 
@@ -921,6 +946,8 @@ func (sfb *SupplyFinance) rejectContract(stub shim.ChaincodeStubInterface, args 
 		res := getRetString(1, "Chaincode Invoke endorse failed: Endorser is not same with current drawee")
 		return shim.Error(res)
 	}
+
+	contract.RefuseReason = args[2]
 
 	msg, ok := setContractStateThenPut(stub, &contract, ContractUploaded, Rejected)
 	if !ok {
