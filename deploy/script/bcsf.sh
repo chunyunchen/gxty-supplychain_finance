@@ -50,8 +50,8 @@ function printHelp() {
   echo "    -s <dbtype> - the database backend to use: goleveldb (default) or couchdb"
   echo "    -l <language> - the chaincode language: golang (default) or node"
   echo "    -o <consensus-type> - the consensus-type of the ordering service: solo (default), kafka, or etcdraft"
-  echo "    -m <orderer hostname> - the orderer hostname: orderer(default)"
-  echo "    -n <localmsp> - the peer local msp: CoreEnterpriseMSP(default)"
+  echo "    -n <orderer hostname> - the orderer hostname: orderer(default)"
+  echo "    -m <localmsp> - the peer local msp: CoreEnterpriseMSP(default)"
   echo "    -v - verbose mode"
   echo "  bcsf.sh -h (print this message)"
   echo
@@ -331,7 +331,7 @@ else
   exit 1
 fi
 
-while getopts "h?c:t:d:s:l:o:v" opt; do
+while getopts "h?c:t:d:s:l:o:m:n:v" opt; do
   case "$opt" in
   h | \?)
     printHelp
