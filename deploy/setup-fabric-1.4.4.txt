@@ -74,3 +74,16 @@ export CORE_PEER_LOCALMSPID=PeerMSP
 export CORE_PEER_MSPCONFIGPATH=$rootDir/config/crypto-config/peerOrganizations/gtbcsf.com/users/Admin@gtbcsf.com/msp
 #export CORE_PEER_TLS_ROOTCERT_FILE=$rootDir/config/crypto-config/peerOrganizations/gtbcsf.com/peers/peer.gtbcsf.com/tls/ca.crt
 peer chaincode install -n $CHAINCODE_NAME -v $CHAINCODE_VERSION -p chaincode/bcsf
+
+10) 实例化链码
+export CHAINCODE_NAME=bcsf
+export CHANNEL_NAME=mycc
+export CHAINCODE_VERSION=1.0
+export rootDir=$(pwd)
+export CORE_PEER_ADDRESS=peer.gtbcsf.com:7051
+export CORE_PEER_LOCALMSPID=PeerMSP
+export CORE_PEER_MSPCONFIGPATH=$rootDir/config/crypto-config/peerOrganizations/gtbcsf.com/users/Admin@gtbcsf.com/msp
+peer chaincode instantiate -o orderer.gtbcsf.com:7050  -C $CHANNEL_NAME -n $CHAINCODE_NAME -v $CHAINCODE_VERSION -c '{"Args":[]}' -P "OR ('PeerMSP.peer')"
+
+11) 升级链码
+peer chaincode upgrade -o orderer.gtbcsf.com:7050 -C $CHANNEL_NAME -n $CHAINCODE_NAME -v $CHAINCODE_VERSION -c '{"Args":[]}' -P "AND ('PeerMSP.peer')"
