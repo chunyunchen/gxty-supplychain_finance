@@ -11,5 +11,11 @@ environment:
   <....>
  参考：https://stackoverflow.com/questions/55016301/unexpected-signal-during-runtime-execution-signal-sigsegv-segmentation-violati
  
- 2. 启动orderer时异常退出，提示“Error reading configuration: Unsupported Config Type ""”
+2. 启动orderer时异常退出，类似提示“Error reading configuration: Unsupported Config Type ""”
  解决：设置环境变量FABRIC_CFG_PATH为包含configtx.yaml和orderer.yaml的绝对路径，因为orderer需要读取这两个配置文件
+ 
+3. 启动etcdraft的orderer时，提示TLS握手失败，类似提示“grpc: Server.Serve failed to complete security handshake from "10.2.1.93:54814": tls: first record does not look like a TLS handshake”
+ 解决：设置以下环境变量
+ORDERER_GENERAL_CLUSTER_CLIENTPRIVATEKEY（可与ORDERER_GENERAL_TLS_PRIVATEKEY相同）
+ORDERER_GENERAL_CLUSTER_CLIENTCERTIFICATE（可与ORDERER_GENERAL_TLS_CERTIFICATE相同）
+ORDERER_GENERAL_CLUSTER_ROOTCAS（可与ORDERER_GENERAL_TLS_ROOTCAS相同）

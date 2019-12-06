@@ -1,5 +1,4 @@
-#!/bin/zsh
-## 这里用zsh不用bash，因为zsh可以很好的处理参数中包含单双引号
+#!/bin/bash
 
 export CORE_PEER_ID=peer0.coren.gtbcsf.com
 export CORE_PEER_MSPCONFIGPATH=/Users/ywt/fabric-run-env/config/crypto-config/peerOrganizations/coren.gtbcsf.com/users/Admin@coren.gtbcsf.com/msp
@@ -12,18 +11,21 @@ export CORE_PEER_TLS_ROOTCERT_FILE=/Users/ywt/fabric-run-env/config/crypto-confi
 
 channel_name=sfchl
 peer_host_dns=peer0.coren.gtbcsf.com
+channle_block_file=/Users/ywt/fabric-run-env/config/channel-artifacts/sfchl.block
 
-cmd="peer channel create -o orderer.gtbcsf.com:7050 -c sfchl -f /Users/ywt/fabric-run-env/config/channel-artifacts/channel.tx --outputBlock /Users/ywt/fabric-run-env/config/channel-artifacts/sfchl.block --tls --cafile /Users/ywt/fabric-run-env/config/crypto-config/ordererOrganizations/gtbcsf.com/orderers/orderer.gtbcsf.com/msp/tlscacerts/tlsca.gtbcsf.com-cert.pem"
-echo "[COMMAND] $cmd"
-eval "$cmd"
-echo
-if [ $? -ne 0 ]; then
-  echo "ERROR !!!! Unable to create channel: $channel_name"
+if [[ ! -f $channle_block_file ]]; then
+  cmd="peer channel create -o orderer.gtbcsf.com:7050 -c sfchl -f /Users/ywt/fabric-run-env/config/channel-artifacts/channel.tx --outputBlock /Users/ywt/fabric-run-env/config/channel-artifacts/sfchl.block --tls --cafile /Users/ywt/fabric-run-env/config/crypto-config/ordererOrganizations/gtbcsf.com/orderers/orderer.gtbcsf.com/msp/tlscacerts/tlsca.gtbcsf.com-cert.pem"
+  echo "[COMMAND] $cmd"
+  eval "$cmd"
   echo
-  exit 1
+  if [ $? -ne 0 ]; then
+    echo "ERROR !!!! Unable to create channel: $channel_name"
+    echo
+    exit 1
+  fi
 fi
 
-cmd="peer channel join -b /Users/ywt/fabric-run-env/config/channel-artifacts/sfchl.block --tls --cafile /Users/ywt/fabric-run-env/config/crypto-config/ordererOrganizations/gtbcsf.com/orderers/orderer.gtbcsf.com/msp/tlscacerts/tlsca.gtbcsf.com-cert.pem"
+cmd="peer channel join -b $channle_block_file --tls --cafile /Users/ywt/fabric-run-env/config/crypto-config/ordererOrganizations/gtbcsf.com/orderers/orderer.gtbcsf.com/msp/tlscacerts/tlsca.gtbcsf.com-cert.pem"
 echo "[COMMAND] $cmd"
 eval "$cmd"
 echo
@@ -42,4 +44,6 @@ if [ $? -ne 0 ]; then
   echo
   exit 1
 fi
+
+./install_prerequists.sh
 echo

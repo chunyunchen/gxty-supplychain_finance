@@ -1,7 +1,10 @@
 #!/bin/bash
 
-root_dir=$(dirname $(dirname ${BASH_SOURCE[0]}))
-echo $root_dir
+cur_dir=$(dirname BASH_SOURCE[0])
+root_dir=$(dirname $(cd $cur_dir && pwd))
+
+echo "ROOT DIR: $root_dir"
+
 function clean_artifacts()
 {
     rm -rf $root_dir/config/channel-artifacts/*
@@ -17,4 +20,3 @@ function gen_artifacts()
 }
 
 clean_artifacts
-gen_artifacts

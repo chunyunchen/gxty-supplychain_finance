@@ -4,8 +4,25 @@ script_dir=$(dirname $BASH_SOURCE[0])
 root_dir=$(dirname $(cd $script_dir && pwd))
 artifacts_dir=$root_dir/config/channel-artifacts
 crypto_config_dir=$root_dir/config/crypto-config
+fabric_ca_server_config=$root_dir/config/fabric-ca-server-config
+del_flag_file=$crypto_config_dir/.del_flag
+
+FinanceMSP=(finance.gtbcsf.com peer0.finance.gtbcsf.com)
+CoreEnterpriseMSP=(coren.gtbcsf.com peer0.coren.gtbcsf.com)
+SupplierMSP=(supplier.gtbcsf.com peer0.supplier.gtbcsf.com)
 
 export FABRIC_CFG_PATH=${root_dir}/config
+
+# Add a flag to avoid accidently delete the Certs artifacts
+function copyOrgCACertstoFabricCA() {
+  peerOrgCACertsDir=$crypto_config_dir/peerOrganizations 
+  for local_msp in $@
+  do
+    org_domain=$(eval echo '$'"{$local_msp[0]}")
+    mkdir -p $fabric_ca_server_config/$org_domain
+    cp $peerOrgCACertsDir/$org_domain/ca/* $fabric_ca_server_config/$org_domain
+  done
+}
 
 # Create configure and data dirs
 function create_dirs() {
@@ -26,7 +43,37 @@ function create_dirs() {
   fi      
 }
 
-# Delete all data/configurations for orderer and peer
+# Add a flag to avoid accidently delete the Certs artifacts
+function addDeleteFlag() {
+  if [[ "$(uname -s)" == "Darwin" ]]; then
+    echo "$(uname -n)" > $del_flag_file
+  else
+    echo "$(hostid)" > $del_flag_file  
+  fi
+
+  if [ $res -ne 0 ]; then
+    echo "Failed to add delete-flag..."
+    exit 1
+  fi
+}
+
+function checkDeleteFlag() {
+  delFlag="$(cat $del_flag_file)"
+  hostFlag=""
+
+  if [[ "$(uname -s)" == "Darwin" ]]; then
+    hostFlag="$(uname -n)"
+  else
+    hostFlag="$(hostid)"
+  fi
+
+  if [[ "$delFlag" != "$hostFlag" ]]; then
+      echo "Can't delete $root_dir/config, because you are not the author"
+      exit 1
+  fi
+}
+
+# Delete data and configs for orderer and peer
 function delete_dirs() {
     rm -rf $artifacts_dir
     rm -rf $root_dir/data
@@ -34,13 +81,19 @@ function delete_dirs() {
     rm -rf $root_dir/config/fabric-ca-server-config
 }
 
+# Delete only data for orderer and peer
+function delete_data_dirs() {
+    rm -rf $root_dir/data
+}
+
 # Print the usage message
 function printHelp() {
   echo "Usage: "
   echo "  bcsf.sh <mode> [-c <channel name>] [-t <timeout>] [-d <delay>] [-s <dbtype>] [-l <language>] [-o <consensus-type>] [-v]"
-  echo "    <mode> - one of 'up', 'down', 'restart' or 'generate'"
+  echo "    <mode> - one of 'up', 'down', 'restart', 'cleanup', 'deldataup' or 'generate'"
   echo "      - 'up' - bring up the network"
-  echo "      - 'cleanup' - delete all data for orderer and peer"
+  echo "      - 'cleanup' - delete data and configs for orderer and peer"
+  echo "      - 'deldataup' - delete only data for orderer and peer"
   echo "      - 'down' - stop the network"
   echo "      - 'restart' - restart the network"
   echo "      - 'generate' - generate required certificates and genesis block"
@@ -72,7 +125,7 @@ function printHelp() {
 
 # Ask user for confirmation to delete all data 
 function askDeleteData() {
-  read -p "Be careful!!! you will delete all data for orderer and peer! Are you sure detete data to startup network? [Y/n] " ans
+  read -p "!!!Be careful!!!  You will delete $* for orderer and peer! Are you sure detete data to startup network? [Y/n] " ans
   case "$ans" in
   y | Y | "")
     echo "deleting ..."
@@ -112,7 +165,7 @@ function networkUp() {
   # generate artifacts if they don't exist
   if [ ! -d "$crypto_config_dir" ]; then
     generateCerts
-    #replacePrivateKey
+    copyOrgCACertstoFabricCA CoreEnterpriseMSP FinanceMSP SupplierMSP
     generateChannelArtifacts
   fi
 
@@ -128,20 +181,17 @@ function networkUp() {
     exit 1
   fi
 
-  echo "Sleeping 7s to allow orderer and peer services to complete booting"
-  sleep 7
-
   if [ "$CONSENSUS_TYPE" == "kafka" ]; then
     sleep 1
     echo "Sleeping 10s to allow $CONSENSUS_TYPE cluster to complete booting"
     sleep 9
   fi
 
-  if [ "$CONSENSUS_TYPE" == "etcdraft" ]; then
-    sleep 1
-    echo "Sleeping 15s to allow $CONSENSUS_TYPE cluster to complete booting"
-    sleep 14
-  fi
+#  if [ "$CONSENSUS_TYPE" == "etcdraft" ]; then
+#    sleep 1
+#    echo "Sleeping 15s to allow $CONSENSUS_TYPE cluster to complete booting"
+#    sleep 14
+#  fi
 
   # now run the end to end script
   #docker exec cli scripts/script.sh $CHANNEL_NAME $CLI_DELAY $LANGUAGE $CLI_TIMEOUT $VERBOSE
@@ -212,6 +262,8 @@ function generateCerts() {
     echo "Failed to generate certificates..."
     exit 1
   fi
+  
+  addDeleteFlag
   echo
 }
 
@@ -317,7 +369,9 @@ shift
 if [ "$MODE" == "up" ]; then
   EXPMODE="Starting"
 elif [ "$MODE" == "cleanup" ]; then
-  EXPMODE="Delete data for orderer and peer then starting"
+  EXPMODE="Delete data and configs for orderer and peer then starting"
+elif [ "$MODE" == "deldataup" ]; then
+  EXPMODE="Delete only data for orderer and peer then starting"
 elif [ "$MODE" == "down" ]; then
   EXPMODE="Stopping"
 elif [ "$MODE" == "restart" ]; then
@@ -379,8 +433,14 @@ fi
 # ask for confirmation to proceed
 askProceed
 
+if [ "${MODE}" == "deldataup" ]; then
+  askDeleteData "data"
+  delete_data_dirs
+fi
+
 if [ "${MODE}" == "cleanup" ]; then
-  askDeleteData
+  checkDeleteFlag
+  askDeleteData "data and configs"
   delete_dirs
 fi
 
@@ -394,9 +454,9 @@ elif [ "${MODE}" == "down" ]; then ## Clear the network
   networkDown
 elif [ "${MODE}" == "generate" ]; then ## Generate Artifacts
   generateCerts
-  #replacePrivateKey
+  copyOrgCACertstoFabricCA CoreEnterpriseMSP FinanceMSP SupplierMSP
   generateChannelArtifacts
-elif [ "${MODE}" == "restart" -o "${MODE}" == "cleanup" ]; then ## Restart the network
+elif [ "${MODE}" == "restart" -o "${MODE}" == "cleanup" -o "${MODE}" == "deldataup" ]; then ## Restart the network
   networkDown
   networkUp
 elif [ "${MODE}" == "upgrade" ]; then ## Upgrade the network from version 1.2.x to 1.3.x
@@ -406,3 +466,4 @@ else
   exit 1
 fi
 
+echo [NATIVE DONE]

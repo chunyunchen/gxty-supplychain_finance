@@ -53,12 +53,15 @@ fi
 
 # generate scripts for channel and chaincode operations
 #
-# script for channel
+##
+
 channel_script_name=channel_anchor.sh
 chaincode_script_name=peer.sh
+copy_script_name=scp_artifacts.sh
+
+# script for channel
 cat > ./$channel_script_name << EOF
-#!/bin/zsh
-## 这里用zsh不用bash，因为zsh可以很好的处理参数中包含单双引号
+#!/bin/bash
 
 export CORE_PEER_ID=$peer_host_dns
 export CORE_PEER_MSPCONFIGPATH=$root_dir/config/crypto-config/peerOrganizations/$org_domain/users/Admin@$org_domain/msp
@@ -71,18 +74,21 @@ export CORE_PEER_TLS_ROOTCERT_FILE=$CORE_PEER_TLS_ROOTCERT_FILE
 
 channel_name=$channel_name
 peer_host_dns=$peer_host_dns
+channle_block_file=$root_dir/config/channel-artifacts/$channel_name.block
 
-cmd="peer channel create -o $orderer_address_dns:7050 -c $channel_name -f $root_dir/config/channel-artifacts/channel.tx --outputBlock $root_dir/config/channel-artifacts/$channel_name.block $orderer_ca_tls_opt"
-echo "[COMMAND] \$cmd"
-eval "\$cmd"
-echo
-if [ \$? -ne 0 ]; then
-  echo "ERROR !!!! Unable to create channel: \$channel_name"
+if [[ ! -f \$channle_block_file ]]; then
+  cmd="peer channel create -o $orderer_address_dns:7050 -c $channel_name -f $root_dir/config/channel-artifacts/channel.tx --outputBlock $root_dir/config/channel-artifacts/$channel_name.block $orderer_ca_tls_opt"
+  echo "[COMMAND] \$cmd"
+  eval "\$cmd"
   echo
-  exit 1
+  if [ \$? -ne 0 ]; then
+    echo "ERROR !!!! Unable to create channel: \$channel_name"
+    echo
+    exit 1
+  fi
 fi
 
-cmd="peer channel join -b $root_dir/config/channel-artifacts/$channel_name.block $orderer_ca_tls_opt"
+cmd="peer channel join -b \$channle_block_file $orderer_ca_tls_opt"
 echo "[COMMAND] \$cmd"
 eval "\$cmd"
 echo
@@ -101,6 +107,8 @@ if [ \$? -ne 0 ]; then
   echo
   exit 1
 fi
+
+./install_prerequists.sh
 echo
 EOF
 
@@ -154,4 +162,39 @@ else
 fi
 EOF
 
-chmod u+x $chaincode_script_name $channel_script_name 
+# script for copy files to remote hosts
+cat > ./$copy_script_name << EOF
+#!/bin/bash
+
+function printHelp() {
+    echo "Usange: scp_artifacts <username> <remote host ip> <remote_dir>"
+    exit 1
+}
+
+if [[ \$# != 3 ]]; then
+    printHelp
+fi
+
+cur_dir=\$(dirname \$BASH_SOURCE[0])
+root_dir=\$(dirname \$(cd \$cur_dir && pwd))
+
+script_dir=\$root_dir/script
+config_dir=\$root_dir/config
+channel_block_file=\$config_dir/channel-artifacts/$channel_name.block
+remote_host="\$1@\$2:\$3"
+
+set -e
+
+if [[ -f \$channel_block_file ]]; then
+  echo "copy \$channel_block_file to \$remote_host/config/channel-artifacts"
+  scp -r \$channel_block_file \$remote_host/config/channel-artifacts
+else
+  echo "copy \$script_dir to \$remote_host"
+  scp -r \$script_dir \$remote_host
+
+  echo "copy \$config_dir to \$remote_host"
+  scp -r \$config_dir \$remote_host
+fi
+EOF
+
+chmod u+x $chaincode_script_name $channel_script_name $copy_script_name
