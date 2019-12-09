@@ -14,6 +14,27 @@ channel_name=sfchl
 peer_host_dns=peer0.coren.gtbcsf.com
 channle_block_file=/Users/ywt/fabric-run-env/config/channel-artifacts/sfchl.block
 
+DEFAULTREMOTEHOSTs=(
+    "btc,10.2.1.91,/home/btc/fabric-run-env"
+    "wang,10.2.1.89,/home/wang/fabric-run-env"
+)
+
+function scpChannelBlocktoRemoteHosts() {
+    OLD_IFS="$IFS"
+    idx=0
+    for hoststr in $@
+    do
+        IFS=","
+        arr=($hoststr)
+        user=${arr[0]}
+        remoteNode=${arr[1]}
+        remoteDir=${arr[2]}
+        ./scp_artifacts.sh $user $remoteNode $remoteDir
+        idx=$(($idx+1))
+    done
+    IFS="$OLD_IFS"
+}
+
 if [[ ! -f $channle_block_file ]]; then
   cmd="peer channel create -o orderer.gtbcsf.com:7050 -c sfchl -f /Users/ywt/fabric-run-env/config/channel-artifacts/channel.tx --outputBlock /Users/ywt/fabric-run-env/config/channel-artifacts/sfchl.block --tls --cafile /Users/ywt/fabric-run-env/config/crypto-config/ordererOrganizations/gtbcsf.com/orderers/orderer.gtbcsf.com/msp/tlscacerts/tlsca.gtbcsf.com-cert.pem"
   echo "[COMMAND] $cmd"
@@ -24,6 +45,8 @@ if [[ ! -f $channle_block_file ]]; then
     echo
     exit 1
   fi
+
+  scpChannelBlocktoRemoteHosts ${DEFAULTREMOTEHOSTs[@]}
 fi
 
 cmd="peer channel join -b $channle_block_file --tls --cafile /Users/ywt/fabric-run-env/config/crypto-config/ordererOrganizations/gtbcsf.com/orderers/orderer.gtbcsf.com/msp/tlscacerts/tlsca.gtbcsf.com-cert.pem"

@@ -9,6 +9,7 @@ function clean_artifacts()
 {
     rm -rf $root_dir/config/channel-artifacts/*
     rm -rf $root_dir/config/crypto-config
+    rm -rf $root_dir/config/fabric-ca-server-config/*
     rm -rf $root_dir/data/*
     return 0
 }

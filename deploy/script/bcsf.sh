@@ -188,6 +188,12 @@ function networkUp() {
     exit 1
   fi
 
+  $script_dir/start_fabric_ca_container.sh
+  if [ $? -ne 0 ]; then
+    echo "ERROR !!!! Unable to start fabric-ca service"
+    exit 1
+  fi
+
   if [ "$CONSENSUS_TYPE" == "kafka" ]; then
     sleep 1
     echo "Sleeping 10s to allow $CONSENSUS_TYPE cluster to complete booting"

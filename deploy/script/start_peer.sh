@@ -1,7 +1,8 @@
 #!/bin/bash
 
-export script_dir=$(dirname BASH_SOURCE[0])
-export root_dir=$(dirname $(cd $script_dir && pwd))
+export cur_dir=$(dirname BASH_SOURCE[0])
+export root_dir=$(dirname $(cd $cur_dir && pwd))
+export script_dir=$root_dir/script
 
 local_msp=$1
 if [[ -z $local_msp ]]; then
@@ -46,10 +47,58 @@ orderer3=(orderer3.gtbcsf.com)
 orderer_address_dns=$(eval echo '$'"{$orderer_host_name[0]}")
 orderer_tls_ca=$root_dir/config/crypto-config/ordererOrganizations/gtbcsf.com/orderers/$orderer_address_dns/msp/tlscacerts/tlsca.gtbcsf.com-cert.pem
 
+function replaceYAMLFile() {
+  # sed on MacOSX does not support -i flag with a null extension. We will use
+  # 't' for our back-up's extension and delete it at the end of the function
+  ARCH=$(uname -s | grep Darwin)
+  if [ "$ARCH" == "Darwin" ]; then
+    OPTS="-it"
+  else
+    OPTS="-i"
+  fi
+
+  sed $OPTS "s/FABRIC_CA_DOCKER_COMPOSE_FILE/$(basename $fabric_ca_yaml)/g" $script_dir/start_fabric_ca_container.sh
+  # If MacOSX, remove the temporary backup of the docker-compose file
+  if [ "$ARCH" == "Darwin" ]; then
+    mv $script_dir/start_fabric_ca_container.sht  $script_dir/start_fabric_ca_container.sh
+  fi
+}
+
 orderer_ca_tls_opt=""
 if [[ "$CORE_PEER_TLS_ENABLED" == "true" ]]; then
     orderer_ca_tls_opt="--tls --cafile $orderer_tls_ca"
 fi
+
+# generate docker-compose yaml file for fabric-ca-server 
+#
+##
+fabric_ca_yaml="$root_dir/config/docker-compose-fabric-ca.yaml"
+peer_org_ca_dir=$root_dir/config/fabric-ca-server-config/$org_domain
+ca_priv_key_path_file=$(ls $peer_org_ca_dir/*_sk)
+ca_priv_key_file_name=$(basename $ca_priv_key_path_file)
+cat > $fabric_ca_yaml << EOF
+version: '2'
+
+networks:
+  bcsf:
+services:
+  fabricca:
+    image: hyperledger/fabric-ca:latest
+    environment:
+      - FABRIC_CA_HOME=/etc/hyperledger/fabric-ca-server
+      - FABRIC_CA_SERVER_CA_NAME=ca-${org_domain%%.*}
+      - FABRIC_CA_SERVER_TLS_ENABLED=true
+      - FABRIC_CA_SERVER_TLS_CERTFILE=/etc/hyperledger/fabric-ca-server-config/ca.$org_domain-cert.pem
+      - FABRIC_CA_SERVER_TLS_KEYFILE=/etc/hyperledger/fabric-ca-server-config/$ca_priv_key_file_name
+    ports:
+      - "7054:7054"
+    command: sh -c 'fabric-ca-server start --ca.certfile /etc/hyperledger/fabric-ca-server-config/ca.$org_domain-cert.pem --ca.keyfile /etc/hyperledger/fabric-ca-server-config/$ca_priv_key_file_name -b admin:adminpw -d'
+    volumes:
+      - $peer_org_ca_dir:/etc/hyperledger/fabric-ca-server-config
+    container_name: ca_peer${org_domain%%.*}
+    networks:
+      - bcsf 
+EOF
 
 # generate scripts for channel and chaincode operations
 #
@@ -78,6 +127,27 @@ channel_name=$channel_name
 peer_host_dns=$peer_host_dns
 channle_block_file=$root_dir/config/channel-artifacts/$channel_name.block
 
+DEFAULTREMOTEHOSTs=(
+    "btc,10.2.1.91,/home/btc/fabric-run-env"
+    "wang,10.2.1.89,/home/wang/fabric-run-env"
+)
+
+function scpChannelBlocktoRemoteHosts() {
+    OLD_IFS="\$IFS"
+    idx=0
+    for hoststr in \$@
+    do
+        IFS=","
+        arr=(\$hoststr)
+        user=\${arr[0]}
+        remoteNode=\${arr[1]}
+        remoteDir=\${arr[2]}
+        ./scp_artifacts.sh \$user \$remoteNode \$remoteDir
+        idx=\$((\$idx+1))
+    done
+    IFS="\$OLD_IFS"
+}
+
 if [[ ! -f \$channle_block_file ]]; then
   cmd="peer channel create -o $orderer_address_dns:7050 -c $channel_name -f $root_dir/config/channel-artifacts/channel.tx --outputBlock $root_dir/config/channel-artifacts/$channel_name.block $orderer_ca_tls_opt"
   echo "[COMMAND] \$cmd"
@@ -88,6 +158,8 @@ if [[ ! -f \$channle_block_file ]]; then
     echo
     exit 1
   fi
+
+  scpChannelBlocktoRemoteHosts \${DEFAULTREMOTEHOSTs[@]}
 fi
 
 cmd="peer channel join -b \$channle_block_file $orderer_ca_tls_opt"
@@ -211,5 +283,6 @@ cat > ./$restart_script_name << EOF
 ./bcsf.sh restart -o etcdraft -m $local_msp -n $orderer_host_name
 EOF
 
+replaceYAMLFile
 
 chmod u+x $chaincode_script_name $channel_script_name $copy_script_name $restart_script_name
