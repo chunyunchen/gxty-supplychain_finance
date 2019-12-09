@@ -1,6 +1,7 @@
 #!/bin/zsh
 ## 这里用zsh不用bash，因为zsh可以很好的处理参数中包含单双引号
 
+export FABRIC_CFG_PATH=/Users/ywt/fabric-run-env/config
 export CORE_PEER_MSPCONFIGPATH=/Users/ywt/fabric-run-env/config/crypto-config/peerOrganizations/coren.gtbcsf.com/users/Admin@coren.gtbcsf.com/msp
 export CORE_PEER_ADDRESS=peer0.coren.gtbcsf.com:7051
 export CORE_PEER_LOCALMSPID=CoreEnterpriseMSP

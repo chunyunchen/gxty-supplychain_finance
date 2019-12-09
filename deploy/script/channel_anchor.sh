@@ -1,5 +1,6 @@
 #!/bin/bash
 
+export FABRIC_CFG_PATH=/Users/ywt/fabric-run-env/config
 export CORE_PEER_ID=peer0.coren.gtbcsf.com
 export CORE_PEER_MSPCONFIGPATH=/Users/ywt/fabric-run-env/config/crypto-config/peerOrganizations/coren.gtbcsf.com/users/Admin@coren.gtbcsf.com/msp
 export CORE_PEER_ADDRESS=peer0.coren.gtbcsf.com:7051

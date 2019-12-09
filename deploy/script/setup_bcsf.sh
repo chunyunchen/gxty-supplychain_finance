@@ -30,7 +30,7 @@ ORDERERHOSTNAMEs=(
 
 DEFAULTREMOTEHOSTs=(
     "btc,10.2.1.91,/home/btc/fabric-run-env"
-    #wang,10.2.1.89,/home/wang/fabric-run-env
+    "wang,10.2.1.89,/home/wang/fabric-run-env"
 )
 
 # Ask user for confirmation to use default remote hosts 

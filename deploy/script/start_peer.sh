@@ -21,7 +21,7 @@ export CORE_PEER_ID=$peer_host_dns
 export CORE_CHAINCODE_MODE=dev
 export CORE_PEER_CHAINCODELISTENADDRESS=0.0.0.0:7052
 export CORE_PEER_NETWORKID=gxtybcsf
-export CORE_LOGGING_LEVEL=DEBUG
+export FABRIC_LOGGING_SPEC=DEBUG
 export CORE_PEER_TLS_ENABLED=true
 export CORE_PEER_TLS_CERT_FILE=$root_dir/config/crypto-config/peerOrganizations/$org_domain/peers/$peer_host_dns/tls/server.crt
 export CORE_PEER_TLS_KEY_FILE=$root_dir/config/crypto-config/peerOrganizations/$org_domain/peers/$peer_host_dns/tls/server.key
@@ -58,11 +58,13 @@ fi
 channel_script_name=channel_anchor.sh
 chaincode_script_name=peer.sh
 copy_script_name=scp_artifacts.sh
+restart_script_name=restart_network.sh
 
 # script for channel
 cat > ./$channel_script_name << EOF
 #!/bin/bash
 
+export FABRIC_CFG_PATH=$root_dir/config
 export CORE_PEER_ID=$peer_host_dns
 export CORE_PEER_MSPCONFIGPATH=$root_dir/config/crypto-config/peerOrganizations/$org_domain/users/Admin@$org_domain/msp
 export CORE_PEER_ADDRESS=$peer_host_dns:7051
@@ -117,6 +119,7 @@ cat > ./$chaincode_script_name << EOF
 #!/bin/zsh
 ## 这里用zsh不用bash，因为zsh可以很好的处理参数中包含单双引号
 
+export FABRIC_CFG_PATH=$root_dir/config
 export CORE_PEER_MSPCONFIGPATH=$root_dir/config/crypto-config/peerOrganizations/$org_domain/users/Admin@$org_domain/msp
 export CORE_PEER_ADDRESS=$peer_host_dns:7051
 export CORE_PEER_LOCALMSPID=$CORE_PEER_LOCALMSPID
@@ -197,4 +200,16 @@ else
 fi
 EOF
 
-chmod u+x $chaincode_script_name $channel_script_name $copy_script_name
+# script for restart blockchain network
+cat > ./$restart_script_name << EOF
+#!/bin/bash
+
+# ./bcsf.sh restart -o etcdraft -m SupplierMSP -n orderer3
+# ./bcsf.sh restart -o etcdraft -m FinanceMSP -n orderer2
+# ./bcsf.sh restart -o etcdraft -m CoreEnterpriseMSP -n orderer
+
+./bcsf.sh restart -o etcdraft -m $local_msp -n $orderer_host_name
+EOF
+
+
+chmod u+x $chaincode_script_name $channel_script_name $copy_script_name $restart_script_name
