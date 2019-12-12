@@ -23,6 +23,7 @@ const (
 	LoanApplied	= "applied"	// 贷款已经申请，等待银行审批
 	LoanRefused	= "refused"	// 银行拒绝贷款
 	LoanApproved	= "approved"	// 银行同意贷款
+	LoanLoaned	= "loaned"	// 银行放款
 	LoanRepaid	= "repaid"	// 贷款已还款
 	ContractUploaded= "uploaded"	// 合同已经上传
 	Endorsed	= "endorsed"	// 同意为合同或票据或贷款担保
@@ -344,6 +345,9 @@ func (sfb *SupplyFinance) Invoke(stub shim.ChaincodeStubInterface) pb.Response {
 	} else if function == "approveLoan" {
 		// 金融机构同意给票据持有人贷款
 		return sfb.approveLoan(stub, args)
+	} else if function == "makeLoan" {
+		// 金融机构同意贷款后放贷
+		return sfb.makeLoan(stub, args)
 	} else if function == "repayLoan" {
 		// 贷款人还款
 		return sfb.repayLoan(stub, args)
@@ -598,7 +602,7 @@ func (sfb *SupplyFinance) endorseLoan(stub shim.ChaincodeStubInterface, args []s
 	return shim.Success(res)
 }
 
-//rejectLoan 拒绝担保贷款
+//rejectLoan 担保人拒绝担保贷款
 // args: 0 - Loan ID; 1 -Guarantor Name
 func (sfb *SupplyFinance) rejectLoan(stub shim.ChaincodeStubInterface, args []string) pb.Response {
 	if len(args) != 2 {
@@ -667,6 +671,35 @@ func (sfb *SupplyFinance) refuseLoan(stub shim.ChaincodeStubInterface, args []st
 	}
 
 	msg, ok = tryUpdateBillForLoan(stub, loan.BillID, BillLoanReady, Endorsed)
+	if !ok {
+		res := getRetString(1, msg)
+		return shim.Error(res)
+	}
+
+	res := getRetByte(0, msg)
+	return shim.Success(res)
+}
+
+//makeLoan 金融机构同意贷款后放贷
+// args: 0 - Loan ID; 1 -Bank Name
+func (sfb *SupplyFinance) makeLoan(stub shim.ChaincodeStubInterface, args []string) pb.Response {
+	if len(args) != 2 {
+		res := getRetString(1, "Chaincode Invoke makeLoan args count expecting 2")
+		return shim.Error(res)
+	}
+
+	loan, ok := getLoanObj(stub, args[0])
+	if !ok {
+		res := getRetString(1, "Chaincode Invoke makeLoan get loan error")
+		return shim.Error(res)
+	}
+
+	if loan.BankName != args[1] {
+		res := getRetString(1, "Chaincode Invoke makeLoan failed: bank's name is not same with current's")
+		return shim.Error(res)
+	}
+
+	msg, ok := setLoanStateThenPut(stub, &loan, LoanApproved, LoanLoaned)
 	if !ok {
 		res := getRetString(1, msg)
 		return shim.Error(res)
