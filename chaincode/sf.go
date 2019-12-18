@@ -51,6 +51,7 @@ type Loan struct {
 	BankName	string	`json:"ln_bank_name,omitempty"`		//金融机构名称
 	RepaymentDate   int64	`json:"repayment_date"`			//还款时间
 	RefuseReason	string	`json:"refused_reason,omitempty"`	//拒绝贷款原因
+	ApplyDate	int64	`json:"apply_date"`	//贷款申请时间
 }
 
 //LoanResult 审核贷款的金融机构信息
@@ -66,6 +67,7 @@ type LoanResult struct {
 type Contract struct {
 	ContractID	string	`json:"contract_id"`	//合同号
 	HashID		string	`json:"hash_id"`	//合同内容的hash值
+	BillHashID	string	`json:"bill_hash_id,omitempty"`	//票据内容的hash值，线下上传票据文件时通过文件内容计算
 	Amount		float64	`json:"ct_amount"`		//合同金额
 	AmountUnit	string	`json:"ct_amount_unit"`	//金额单位，元或美元等
 	IssueDate	int64	`json:"ct_issue_date"`	//开始日期
@@ -495,6 +497,7 @@ func tryPutApplyLoanObj(stub shim.ChaincodeStubInterface, args []string, init_st
 		return shim.Error(res)
 	}
 
+	ln.ApplyDate = time.Now().Unix()
 	msg, ok := issueLoanObj(stub, &ln, init_state)
 	if !ok {
 		res := getRetString(1, msg)
@@ -592,7 +595,7 @@ func (sfb *SupplyFinance) endorseLoan(stub shim.ChaincodeStubInterface, args []s
 		return shim.Error(res)
 	}
 
-	msg, ok := setLoanStateThenPut(stub, &loan, LoanGurantee, Endorsed)
+	msg, ok := setLoanStateThenPut(stub, &loan, LoanGurantee, LoanApplied)
 	if !ok {
 		res := getRetString(1, msg)
 		return shim.Error(res)
@@ -603,10 +606,10 @@ func (sfb *SupplyFinance) endorseLoan(stub shim.ChaincodeStubInterface, args []s
 }
 
 //rejectLoan 担保人拒绝担保贷款
-// args: 0 - Loan ID; 1 -Guarantor Name
+// args: 0 - Loan ID; 1 -Guarantor Name; 2 - Refuse Reason
 func (sfb *SupplyFinance) rejectLoan(stub shim.ChaincodeStubInterface, args []string) pb.Response {
-	if len(args) != 2 {
-		res := getRetString(1, "Chaincode Invoke rejectLoan args count expecting 2")
+	if len(args) != 3 {
+		res := getRetString(1, "Chaincode Invoke rejectLoan args count expecting 3")
 		return shim.Error(res)
 	}
 
@@ -621,6 +624,7 @@ func (sfb *SupplyFinance) rejectLoan(stub shim.ChaincodeStubInterface, args []st
 		return shim.Error(res)
 	}
 
+	loan.RefuseReason = args[2]
 	msg, ok := setLoanStateThenPut(stub, &loan, LoanGurantee, Rejected)
 	if !ok {
 		res := getRetString(1, msg)

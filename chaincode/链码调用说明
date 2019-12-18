@@ -1,0 +1,287 @@
+// 票据、贷款、合同状态
+const (
+	BillIssued	= "issued"	// 票据通过合同生成
+	BillLoanReady	= "loanready"	// 票据申请抵押贷款
+	BillMorgaged	= "mortgaged"	// 票据被抵押给金融机构，获得贷款
+	BillAbolished	= "abolished"	// 把票据作废
+	BillSplit	= "split"	// 拆分票据
+	BillRedeemed	= "redeemed"	// 已还款，票据赎回
+	LoanGurantee	= "untrusted"	// 申请信用企业为贷款提供担保
+	LoanApplied	= "applied"	// 贷款已经申请，等待银行审批
+	LoanRefused	= "refused"	// 银行拒绝贷款
+	LoanApproved	= "approved"	// 银行同意贷款
+	LoanLoaned	= "loaned"	// 银行放款
+	LoanRepaid	= "repaid"	// 贷款已还款
+	ContractUploaded= "uploaded"	// 合同已经上传
+	Endorsed	= "endorsed"	// 同意为合同或票据或贷款担保
+	Rejected	= "rejected"	// 拒绝为合同或票据或贷款担保
+)
+
+//Loan 贷款信息基本结构
+type Loan struct {
+	LoanID		string	`json:"loan_id"`	//贷款编号
+	BillID		string	`json:"ln_bill_id"`	//票据号
+	Amount		float64	`json:"ln_amount"`	//贷款金额
+	AmountUnit	string	`json:"ln_amount_unit"`	//金额单位，元或美元等
+	BankRate	float64	`json:"bank_rate"`	//贷款利率
+	BankInterest	float64	`json:"bank_interest"`	//贷款利息
+	PyeeAcct	string	`json:"ln_pyee_acct"`	//收款人账户
+	Owner		string	`json:"ln_owner"`	//贷款人系统账号
+	OwnerName	string	`json:"ln_owner_name"`	//贷款人名称
+	State		string	`json:"ln_state"`		//贷款状态
+	Guarantor	string	`json:"guarantor,omitempty"`		//担保方/还款人系统账号
+	GuarantorName	string	`json:"guarantor_name,omitempty"`	//担保方/还款人名称
+	Bank		string	`json:"ln_bank,omitempty"`		//金融机构系统账号
+	BankName	string	`json:"ln_bank_name,omitempty"`		//金融机构名称
+	RepaymentDate   int64	`json:"repayment_date"`			//还款时间
+	RefuseReason	string	`json:"refused_reason,omitempty"`	//拒绝贷款原因
+	ApplyDate	int64	`json:"apply_date"`	//贷款申请时间
+}
+
+//Contract 合同基本结构
+type Contract struct {
+	ContractID	string	`json:"contract_id"`	//合同号
+	HashID		string	`json:"hash_id"`	//合同内容的hash值
+	BillHashID	string	`json:"bill_hash_id,omitempty"`	//票据内容的hash值，线下上传票据文件时通过文件内容计算
+	Amount		float64	`json:"ct_amount"`		//合同金额
+	AmountUnit	string	`json:"ct_amount_unit"`	//金额单位，元或美元等
+	IssueDate	int64	`json:"ct_issue_date"`	//开始日期
+	DueDate		int64	`json:"ct_due_date"`	//到期日期
+	PyeeName	string	`json:"ct_pyee_name"`	//收款人名称
+	PyeeID		string	`json:"ct_pyee_id"`	//收款人身份号
+	PyeeAcct	string	`json:"ct_pyee_acct"`	//收款人账户
+	Drawee		string	`json:"ct_drawee"`		//还款人系统账号
+	DraweeName	string	`json:"ct_drawee_name"`	//还款人名称
+	Issuer		string	`json:"ct_issuer"`		//发起人系统账号
+	IssuerName	string	`json:"ct_issuer_name"`	//发起人名称
+	Owner		string	`json:"ct_owner"`		//持有人系统账号
+	OwnerName	string	`json:"ct_owner_name"`	//持有人名称
+	State		string	`json:"ct_state"`		//合同状态
+	RefuseReason	string	`json:"refused_reason,omitempty"`	//拒绝担保合同原因
+}
+
+//Bill 票据基本结构
+type Bill struct {
+	ParentID	string	`json:"parent_id"`	//票据来源，生成票据的合同号或被拆分的票据号
+	BillID		string	`json:"bill_id"`	//票据号
+	Amount		float64	`json:"amount"`		//票据金额
+	AmountUnit	string	`json:"amount_unit"`	//金额单位，元或美元等
+	IssueDate	int64	`json:"issue_date"`	//票据出票日期
+	DueDate		int64	`json:"due_date"`	//票据到期日期
+	PyeeName	string	`json:"pyee_name"`	//收款人名称
+	PyeeID		string	`json:"pyee_id"`	//收款人身份号
+	PyeeAcct	string	`json:"pyee_acct"`	//收款人账户
+	Drawee		string	`json:"drawee"`		//还款人系统账号
+	DraweeName	string	`json:"drawee_name"`	//还款人名称
+	Issuer		string	`json:"issuer"`		//票据发起人系统账号
+	IssuerName	string	`json:"issuer_name"`	//票据发起人名称
+	Owner		string	`json:"owner"`		//持票人系统账号
+	OwnerName	string	`json:"owner_name"`	//持票人名称
+	State		string	`json:"state"`		//票据状态(omitempty,json反序列化显示给客户端时不返回空字段)
+	SplitCount	int32	`json:"split_count"`    //控制原始票据拆分次数，该值表示当前票据是通过几次拆分而生成的
+}
+
+21. 金融机构同意贷款后放贷
+函数：makeLoan
+参数：2个
+参数1：贷款编号
+参数2：金融机构名称
+
+20. 贷款还款
+函数：repayLoan
+参数：2个
+参数1：贷款编号
+参数2：金融机构名称
+
+19. 上传生成合同	
+函数：issueContract
+参数：1个
+参数样例：
+{
+    "contract_id":"aa",
+    "hash_id":"bb",
+    "ct_amount":333,
+    "ct_amount_unit":"aa",
+    "ct_issue_date":2222,
+    "ct_due_date":3333,
+    "ct_pyee_name":"aa",
+    "ct_pyee_id":"aa",
+    "ct_pyee_acct":"aa",
+    "ct_drawee":"aa",
+    "ct_drawee_name":"aa",
+    "ct_issuer":"aa",
+    "ct_issuer_name":"aa",
+    "ct_owner":"aa",
+    "ct_owner_name":"aa"
+}
+
+18. 核心企业同意担保合同
+函数：endorseContract
+参数：3个
+参数1：合同ID
+参数2：还款人名称
+参数3：票据ID
+
+17. 核心企业拒绝担保合同
+函数：rejectContract
+参数：3个
+参数1：合同ID
+参数2：还款人名称
+参数3：拒绝原因
+
+16. 查询票据拆分后的子票据ID集合
+函数：queryBillChilds
+参数：1个
+参数1：票据ID
+
+15. 任意字段查询，一次返回所有结果
+函数：queryAll
+参数：1个
+参数1：couchdb查询语句
+参数样例：{"selector":{"owner":"oi"}}
+
+14. 贷款担保成功后，继续申请贷款
+函数：applyLoanAfterGuarantee
+参数：2个
+参数1：贷款编号
+参数2：贷款申请人名称
+
+13. 核心企业拒绝为供应商贷款担保
+函数：rejectLoan
+参数：3个
+参数1：贷款编号
+参数2：担保人名称
+参数3：拒绝原因
+
+12. 核心企业同意为供应商贷款担保
+函数：endorseLoan
+参数：2个
+参数1：贷款编号
+参数2：担保人名称
+
+11. 银行拒绝贷款
+函数：refuseLoan
+参数：1个
+参数样例：
+{"loan_id":"ee",
+"ln_owner_name":"on",
+"ln_bank":"jin",
+"ln_bank_name":"jinn",
+"refused_reason":"non loan"
+}
+
+10. 银行贷款
+函数：approveLoan
+参数：1个
+参数样例：
+{"loan_id":"ee",
+"ln_owner_name":"on",
+"ln_bank":"jin",
+"ln_bank_name":"jinn"
+}
+
+9. 不担保，直接申请贷款
+函数：applyLoan
+参数：1个
+参数样例：
+{
+    "loan_id":"dd",
+    "ln_bill_id":"91",
+    "ln_amount":333,
+    "ln_amount_unit":"aa",
+    "ln_pyee_acct":"aa",
+    "ln_owner":"oi",
+    "ln_owner_name":"on",
+    "repayment_date":1233435
+}
+
+8. 申请贷款前，需要信用企业先担保贷款
+函数：applyGuarantee
+参数：1个
+参数样例：
+{
+    "loan_id":"dd",
+    "ln_bill_id":"91",
+    "ln_amount":333,
+    "ln_amount_unit":"aa",
+    "ln_pyee_acct":"aa",
+    "ln_owner":"oi",
+    "ln_owner_name":"on",
+    "repayment_date":1233435,
+    "guarantor":"aa",
+    "guarantor_name":"aa"
+}
+
+7. 核心企业同意担保背书
+函数：endorseBill
+参数：2个
+参数1：票据ID
+参数2：还款人名称
+
+6. 核心企业拒绝担保背书
+函数：rejectBill
+参数：2个
+参数1：票据ID
+参数2：还款人名称
+
+5. 票据生成		
+函数：issueBill
+参数：1个
+参数样例：
+{
+    "parent_id":"111",
+    "bill_id":"66",
+    "amount":3000,
+    "amount_unit":"yuan",
+    "issue_date":"11-22",
+    "due_date":"12-23",
+    "pyee_name":"pn",
+    "pyee_id":"pi",
+    "pyee_acct":"pa",
+    "drawee":"di",
+    "drawee_name":"dn",
+    "issuer":"ii",
+    "issuer_name":"in",
+    "owner":"oi",
+    "owner_name":"on"
+}
+
+4. 拆分票据
+函数：splitBill
+参数：1个
+参数样例：
+{
+    "bill_id":"66",
+    "owner_name":"on",
+    "child_bills":[  // 拆分后的票据，需大于等2个
+        {
+            "bill_id":"0001",
+            "owner":"gt1",
+            "owner_name":"w1",
+            "amount":2000
+        },
+        {
+            "bill_id":"00002",
+            "owner":"gt2",
+            "owner_name":"gs2",
+            "amount":1000
+        }
+    ]
+}
+
+3. 用ID查询票据
+queryByID
+参数：1个
+参数1：贷款或票据ID
+
+2. 分页查询票据
+函数：queryBillsWithPagination
+参数：3个
+参数1：couchdb查询语句，如：{"selector":{"owner":"oi"}}
+参数2：每页的记录条数
+参数3：分页标签，每次查询自动返回，下次查询用前一次返回的标签，第一次传空。
+
+1. 查询票据的交易链/交易历史
+函数：queryTXChainForBill
+参数：1个
+参数1：贷款或票据ID
