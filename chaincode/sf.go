@@ -138,7 +138,7 @@ type BillChild struct {
 // chaincode response结构
 type chaincodeRet struct {
 	Code int    // 0 success otherwise 1
-	Des  string //description
+	Description  string //description
 }
 
 //SupplyFinance chaincode基本结构
@@ -160,7 +160,7 @@ func (bsi BillSplitInfo) SumAmountOfChildBill() float64{
 func getRetByte(code int, des string) []byte {
 	var r chaincodeRet
 	r.Code = code
-	r.Des = des
+	r.Description = des
 
 	b, err := json.Marshal(r)
 
@@ -175,7 +175,7 @@ func getRetByte(code int, des string) []byte {
 func getRetString(code int, des string) string {
 	var r chaincodeRet
 	r.Code = code
-	r.Des = des
+	r.Description = des
 
 	b, err := json.Marshal(r)
 
@@ -553,7 +553,7 @@ func (sfb *SupplyFinance) repayLoan(stub shim.ChaincodeStubInterface, args []str
 		return shim.Error(res)
 	}
 
-	msg, ok := setLoanStateThenPut(stub, &loan, LoanApproved, LoanRepaid)
+	msg, ok := setLoanStateThenPut(stub, &loan, LoanLoaned, LoanRepaid)
 	if !ok {
 		res := getRetString(1, msg)
 		return shim.Error(res)
