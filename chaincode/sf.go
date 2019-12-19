@@ -63,6 +63,13 @@ type LoanResult struct {
 	RefuseReason	string	`json:"refused_reason"`	//拒绝贷款原因
 }
 
+const LOAN_REPAYMENT_PREFIX="LNRP_"
+//LoanRepayment 还贷相关信息
+type LoanRepayment struct {
+	LoanID		string	`json:"lr_loan_id"`	//贷款编号
+	IsPrepayment	bool	`json:"prepayment"` //是否提前还款
+}
+
 //Contract 合同基本结构
 type Contract struct {
 	ContractID	string	`json:"contract_id"`	//合同号
@@ -179,50 +186,20 @@ func getRetString(code int, des string) string {
 	return string(b[:])
 }
 
-// 根据ID查询拆分后的子票据
-// args: 0 - 票据ID
-func (sfb *SupplyFinance) queryBillChilds(stub shim.ChaincodeStubInterface, args []string) pb.Response {
-	if len(args) != 1 {
-		res := getRetString(1, "Chaincode queryBillChilds args != 1")
-		return shim.Error(res)
+// 根据贷款编号取提前还款信息对象
+func getLoanRepaymentObj(stub shim.ChaincodeStubInterface, loanNo string) (LoanRepayment, bool) {
+	lr := LoanRepayment{LoanID:loanNo}
+
+	lr_bytes, err := stub.GetState(lr.composeKey())
+
+	if lr_bytes != nil {
+		err = json.Unmarshal(lr_bytes, &lr)
+		if err == nil {
+			return lr, true
+		}
 	}
 
-	key := Parent_Child_Key_Prefix + args[0]
-	objBytes, err := stub.GetState(key)
-	if  err != nil {
-		res := fmt.Sprintf("Chaincode queryBillChilds failed: %s", err.Error())
-		res = getRetString(1, res)
-		return shim.Error(res)
-	}
-
-	if objBytes == nil {
-		return shim.Success([]byte("{}"))
-	}
-
-	return shim.Success(objBytes)
-}
-
-// 根据ID查询记录
-// args: 0 - id
-func (sfb *SupplyFinance) queryByID(stub shim.ChaincodeStubInterface, args []string) pb.Response {
-	if len(args) != 1 {
-		res := getRetString(1, "Chaincode queryByID args != 1")
-		return shim.Error(res)
-	}
-
-	id := args[0]
-	objBytes, err := stub.GetState(id)
-	if  err != nil {
-		res := fmt.Sprintf("Chaincode queryByID failed: %s", err.Error())
-		res = getRetString(1, res)
-		return shim.Error(res)
-	}
-
-	if objBytes == nil {
-		return shim.Success([]byte("{}"))
-	}
-
-	return shim.Success(objBytes)
+	return lr, false
 }
 
 // 根据贷款编号取贷款对象
@@ -350,6 +327,9 @@ func (sfb *SupplyFinance) Invoke(stub shim.ChaincodeStubInterface) pb.Response {
 	} else if function == "makeLoan" {
 		// 金融机构同意贷款后放贷
 		return sfb.makeLoan(stub, args)
+	} else if function == "prepayLoan" {
+		// 贷款人申请提前还款
+		return sfb.prepayLoan(stub, args)
 	} else if function == "repayLoan" {
 		// 贷款人还款
 		return sfb.repayLoan(stub, args)
@@ -529,6 +509,26 @@ func issueLoanObj(stub shim.ChaincodeStubInterface, ln *Loan, init_state string)
 	_, ok := putObj(stub, ln.LoanID, *ln)
 	if !ok {
 		return "Chaincode Invoke issueLoanObj put bytes failed", false
+	}
+
+	return "invoke success", true
+}
+
+func (lr LoanRepayment) composeKey() string {
+	return LOAN_REPAYMENT_PREFIX + lr.LoanID
+}
+
+func setLoanRepaymentThenPut(stub shim.ChaincodeStubInterface, ln *Loan, init_state bool) (string, bool){
+	var lr LoanRepayment
+	
+	lr.LoanID = ln.LoanID
+	lr.IsPrepayment = init_state
+
+	// 保存
+	// 如果不存在，则创建记录；如果已经存在，则用新值更新
+	_, ok := putObj(stub, lr.composeKey(), lr)
+	if !ok {
+		return "Chaincode Invoke issueLoanRepaymentObj put bytes failed", false
 	}
 
 	return "invoke success", true
@@ -754,7 +754,59 @@ func (sfb *SupplyFinance) approveLoan(stub shim.ChaincodeStubInterface, args []s
 		res := getRetString(1, msg)
 		return shim.Error(res)
 	}
+	
+	msg, ok = setLoanRepaymentThenPut(stub, &loan, false)
+	if !ok {
+		res := getRetString(1, msg)
+		return shim.Error(res)
+	}
 
+	res := getRetByte(0, msg)
+	return shim.Success(res)
+}
+
+//prepayLoan 提前还款
+// args: 0 - Loan ID; 1 - Owner Name;
+func (sfb *SupplyFinance) prepayLoan(stub shim.ChaincodeStubInterface, args []string) pb.Response {
+	if len(args) != 2 {
+		res := getRetString(1, "Chaincode Invoke prepayLoan args != 2")
+		return shim.Error(res)
+	}
+
+	loan, ok := getLoanObj(stub, args[0])
+	if !ok {
+		res := getRetString(1, "Chaincode Invoke prepayLoan get loan error")
+		return shim.Error(res)
+	}
+	
+	if loan.OwnerName != args[1] {
+		res := getRetString(1, "Chaincode Invoke prepayLoan failed: loan owner's name is not same with current's")
+		return shim.Error(res)
+	}
+	
+	if loan.State != LoanApproved {
+		res := getRetString(1, "Chaincode Invoke prepayLoan failed: loan's state is not expected status, needed: 'approved'")
+		return shim.Error(res)
+	}
+	
+	lr, ok := getLoanRepaymentObj(stub, loan.LoanID)
+	if !ok {
+		res := getRetString(1, "Chaincode Invoke prepayLoan get loan-repayment error")
+		return shim.Error(res)
+	}
+	
+	if lr.IsPrepayment {
+		res := fmt.Sprintf("Chaincode Invoke prepayLoan failed: The loan has been applied prepayment, loan NO: %s", loan.LoanID)
+		res = getRetString(1, res)
+		return shim.Error(res)
+	}
+	
+	msg, ok := setLoanRepaymentThenPut(stub, &loan, true)
+	if !ok {
+		res := getRetString(1, msg)
+		return shim.Error(res)
+	}
+	
 	res := getRetByte(0, msg)
 	return shim.Success(res)
 }
@@ -1397,21 +1449,50 @@ func (t *SupplyFinance) queryTXChainForBill(stub shim.ChaincodeStubInterface, ar
 	return shim.Success(buffer.Bytes())
 }
 
-//queryByBillNo 根据票号取得票据 以及该票据背书历史
-//  0 - Bill_No ;
-func (sfb *SupplyFinance) queryByBillNo(stub shim.ChaincodeStubInterface, args []string) pb.Response {
+// 根据ID查询拆分后的子票据
+// args: 0 - 票据ID
+func (sfb *SupplyFinance) queryBillChilds(stub shim.ChaincodeStubInterface, args []string) pb.Response {
 	if len(args) != 1 {
-		res := getRetString(1, "Chaincode queryByBillNo args!=1")
-		return shim.Error(res)
-	}
-	// 取得该票据
-	_, ok := getBillObj(stub, args[0])
-	if !ok {
-		res := getRetString(1, "Chaincode queryByBillNo get bill error")
+		res := getRetString(1, "Chaincode queryBillChilds args != 1")
 		return shim.Error(res)
 	}
 
-	return shim.Success(nil)
+	key := Parent_Child_Key_Prefix + args[0]
+	objBytes, err := stub.GetState(key)
+	if  err != nil {
+		res := fmt.Sprintf("Chaincode queryBillChilds failed: %s", err.Error())
+		res = getRetString(1, res)
+		return shim.Error(res)
+	}
+
+	if objBytes == nil {
+		return shim.Success([]byte("{}"))
+	}
+
+	return shim.Success(objBytes)
+}
+
+// 根据ID查询记录
+// args: 0 - id
+func (sfb *SupplyFinance) queryByID(stub shim.ChaincodeStubInterface, args []string) pb.Response {
+	if len(args) != 1 {
+		res := getRetString(1, "Chaincode queryByID args != 1")
+		return shim.Error(res)
+	}
+
+	id := args[0]
+	objBytes, err := stub.GetState(id)
+	if  err != nil {
+		res := fmt.Sprintf("Chaincode queryByID failed: %s", err.Error())
+		res = getRetString(1, res)
+		return shim.Error(res)
+	}
+
+	if objBytes == nil {
+		return shim.Success([]byte("{}"))
+	}
+
+	return shim.Success(objBytes)
 }
 
 func main() {

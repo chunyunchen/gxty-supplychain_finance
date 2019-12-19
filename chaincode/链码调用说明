@@ -38,6 +38,12 @@ type Loan struct {
 	ApplyDate	int64	`json:"apply_date"`	//贷款申请时间
 }
 
+//LoanRepayment 还贷相关信息
+type LoanRepayment struct {
+	LoanID		string	`json:"lr_loan_id"`	//贷款编号
+	IsPrepayment	bool	`json:"prepayment"` //是否提前还款
+}
+
 //Contract 合同基本结构
 type Contract struct {
 	ContractID	string	`json:"contract_id"`	//合同号
@@ -80,6 +86,12 @@ type Bill struct {
 	State		string	`json:"state"`		//票据状态(omitempty,json反序列化显示给客户端时不返回空字段)
 	SplitCount	int32	`json:"split_count"`    //控制原始票据拆分次数，该值表示当前票据是通过几次拆分而生成的
 }
+
+22. 申请提前还款
+函数：prepayLoan
+参数：2个
+参数1：贷款编号
+参数2：贷款申请人名称
 
 21. 金融机构同意贷款后放贷
 函数：makeLoan
