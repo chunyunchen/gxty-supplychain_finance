@@ -784,8 +784,8 @@ func (sfb *SupplyFinance) prepayLoan(stub shim.ChaincodeStubInterface, args []st
 		return shim.Error(res)
 	}
 	
-	if loan.State != LoanApproved {
-		res := getRetString(1, "Chaincode Invoke prepayLoan failed: loan's state is not expected status, needed: 'approved'")
+	if loan.State != LoanApproved && loan.State != LoanLoaned {
+		res := getRetString(1, "Chaincode Invoke prepayLoan failed: loan's state is not expected status, needed: 'approved' or 'loaned'")
 		return shim.Error(res)
 	}
 	
