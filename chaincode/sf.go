@@ -113,7 +113,23 @@ type Bill struct {
 	SplitCount	int32	`json:"split_count"`    //控制原始票据拆分次数，该值表示当前票据是通过几次拆分而生成的
 }
 
-const Parent_Child_Key_Prefix = "PC_"
+const BILL_TRANSFER_PREFIX="BLTF_"
+//BillTransfer 票据流转信息
+type BillTransfer struct {
+	BillID		string	`json:"bt_bill_id"`	//票据编号
+	Count		int		`json:"count"`	//票据已经流转的次数
+	Transfers	map[int]TransferInfo	`json:"transfers"`
+}
+
+//TransferInfo 流转信息
+type TransferInfo struct {
+	BillID			string	`json:"ti_bill_id,-"`	//票据编号
+	OldOwnerName	string	`json:"old_owner_name"`	//流转前票据所有者名称
+	NewOwner		string	`json:"new_owner"`	//流转后票据所有者系统账号
+	NewOwnerName	string	`json:"new_owner_name"`	//流转后票据所有者名称
+}
+
+const PARENT_CHILD_KEY_PREFIX = "PC_"
 //ParentChilds 拆分后父子票据关系基本结构
 type ParentChilds struct {
 	ParentID	string		`json:"cd_parent_id"`	//父票据号
@@ -184,6 +200,26 @@ func getRetString(code int, des string) string {
 		return ""
 	}
 	return string(b[:])
+}
+
+// 根据票据编号取流转对象
+func getBillTransferObj(stub shim.ChaincodeStubInterface, id string) (BillTransfer, bool) {
+	bt := BillTransfer{BillID: id, Count: 0, Transfers: make(map[int]TransferInfo)}
+
+	bt_bytes, err := stub.GetState(bt.composeKey())
+
+	if err != nil {
+		return bt, false
+	} else {
+		if bt_bytes != nil {
+			err = json.Unmarshal(bt_bytes, &bt)
+			if err != nil {
+				return bt, false
+			}
+		}
+	}
+
+	return bt, true
 }
 
 // 根据贷款编号取提前还款信息对象
@@ -291,9 +327,9 @@ func (sfb *SupplyFinance) Invoke(stub shim.ChaincodeStubInterface) pb.Response {
 	} else if function == "rejectContract" {
 		// 核心企业拒绝担保合同
 		return sfb.rejectContract(stub, args)
-	} else if function == "shiftBill" {
+	} else if function == "transferBill" {
 		// 流转票据
-		return sfb.shiftBill(stub, args)
+		return sfb.transferBill(stub, args)
 	} else if function == "redeemBill" {
 		// 已还款，赎回票据
 		return sfb.redeemBill(stub, args)
@@ -516,6 +552,10 @@ func issueLoanObj(stub shim.ChaincodeStubInterface, ln *Loan, init_state string)
 
 func (lr LoanRepayment) composeKey() string {
 	return LOAN_REPAYMENT_PREFIX + lr.LoanID
+}
+
+func (bt BillTransfer) composeKey() string {
+	return BILL_TRANSFER_PREFIX + bt.BillID
 }
 
 func setLoanRepaymentThenPut(stub shim.ChaincodeStubInterface, ln *Loan, init_state bool) (string, bool){
@@ -930,36 +970,76 @@ func setContractStateThenPut(stub shim.ChaincodeStubInterface, ct *Contract, exp
 	return "invoke success", true
 }
 
-//shiftBill 担保票据
-//  args: 0 - Bill_No ; 1 - Old Owner Name ; 2 - New Owner ; 3 - New Owner Name
-func (sfb *SupplyFinance) shiftBill(stub shim.ChaincodeStubInterface, args []string) pb.Response {
-	if len(args) != 2 {
-		res := getRetString(1, "Chaincode Invoke shift args count expecting 2")
+//transferBill 票据流转
+//  args: 0 - {Transfer Info Object}
+func (sfb *SupplyFinance) transferBill(stub shim.ChaincodeStubInterface, args []string) pb.Response {
+	if len(args) != 1 {
+		res := getRetString(1, "Chaincode Invoke transferBill args count expecting 1")
 		return shim.Error(res)
 	}
+	
+	var ti TransferInfo
+	err := json.Unmarshal([]byte(args[0]), &ti)
+	if err != nil {
+		res := getRetString(1, "Chaincode Invoke transferBill unmarshal failed")
+		return shim.Error(res)
+	}
+	
 	// 根据票号取得票据
-	bill, ok := getBillObj(stub, args[0])
+	bill, ok := getBillObj(stub, ti.BillID)
 	if !ok {
-		res := getRetString(1, "Chaincode Invoke shift get bill error")
+		res := getRetString(1, "Chaincode Invoke transferBill get bill error")
 		return shim.Error(res)
 	}
 
-	if bill.OwnerName != args[1] {
-		res := getRetString(1, "Chaincode Invoke shift failed: the owner of bill is not same with current's")
+	if bill.OwnerName != ti.OldOwnerName {
+		res := getRetString(1, "Chaincode Invoke transferBill failed: the owner of bill is not same with current's")
+		return shim.Error(res)
+	}
+	
+	if bill.State != Endorsed {
+		res := getRetString(1, "Chaincode Invoke transferBill failed: The bill can not be transferred, due to it's state.")
 		return shim.Error(res)
 	}
 
-	bill.Owner= args[2]
-	bill.OwnerName = args[3]
-
-	// 保存票据
-	_, ok = putObj(stub, bill.BillID, bill)
+	// 根据票号取得票据流转信息
+	bt, ok := getBillTransferObj(stub, ti.BillID)
 	if !ok {
-		return shim.Error("Chaincode Invoke shiftBill to set bill state failed")
+		res := getRetString(1, "Chaincode Invoke transferBill get BillTransfer error")
+		return shim.Error(res)
 	}
-
-	res := getRetByte(0, "Invoke shiftBill success")
+	
+	// 更新票据所有者
+	bill.Owner = ti.NewOwner
+	bill.OwnerName = ti.NewOwnerName
+	msg, ok := setBillStateThenPut(stub, &bill, Endorsed, Endorsed)
+	if !ok {
+		res := getRetString(1, msg)
+		return shim.Error(res)
+	}
+	
+	// 保存票据流转信息
+	msg, ok = setBillTransferThenPut(stub, &bt, ti)
+	if !ok {
+		res := getRetString(1, msg)
+		return shim.Error(res)
+	}
+	
+	res := getRetByte(0, "Invoke transferBill success")
 	return shim.Success(res)
+}
+
+func setBillTransferThenPut(stub shim.ChaincodeStubInterface, bt *BillTransfer, ti TransferInfo) (string, bool){
+	bt.Count += 1
+	bt.Transfers[bt.Count] = ti
+
+	// 如果不存在，则创建记录；如果已经存在，则用新值更新
+	_, ok := putObj(stub, bt.composeKey(), bt)
+	if !ok {
+		return "Chaincode Invoke setBillTransferThenPut put bytes failed", false
+	}
+
+	return "invoke success", true
 }
 
 //redeemBill 赎回票据
@@ -1250,7 +1330,7 @@ func putParentChilds(stub shim.ChaincodeStubInterface, parent_id string, child_b
 	pc.ParentID = parent_id
 	pc.ChildBills = child_bills
 
-	key := Parent_Child_Key_Prefix + parent_id
+	key := PARENT_CHILD_KEY_PREFIX + parent_id
 	_, ok := putObj(stub, key, pc)
 	if !ok {
 		return "Chaincode Invoke split save bill parent->childs relationship failed", false
@@ -1457,7 +1537,7 @@ func (sfb *SupplyFinance) queryBillChilds(stub shim.ChaincodeStubInterface, args
 		return shim.Error(res)
 	}
 
-	key := Parent_Child_Key_Prefix + args[0]
+	key := PARENT_CHILD_KEY_PREFIX + args[0]
 	objBytes, err := stub.GetState(key)
 	if  err != nil {
 		res := fmt.Sprintf("Chaincode queryBillChilds failed: %s", err.Error())

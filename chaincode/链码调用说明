@@ -87,6 +87,16 @@ type Bill struct {
 	SplitCount	int32	`json:"split_count"`    //控制原始票据拆分次数，该值表示当前票据是通过几次拆分而生成的
 }
 
+23. 票据流转
+函数：transferBill
+参数：1个
+参数样例：
+{"ti_bill_id":"107",
+"old_owner_name":"on2",
+"new_owner_name":"on3",
+"new_owner":"oi3"
+}
+
 22. 申请提前还款
 函数：prepayLoan
 参数：2个
