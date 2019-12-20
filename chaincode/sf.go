@@ -9,6 +9,7 @@ import (
 
 	"github.com/hyperledger/fabric/core/chaincode/shim"
 	pb "github.com/hyperledger/fabric/protos/peer"
+//	ms "github.com/chaincode/bcsf/mapstructure"
 )
 
 // 票据和贷款状态
@@ -54,8 +55,8 @@ type Loan struct {
 	ApplyDate	int64	`json:"apply_date"`	//贷款申请时间
 }
 
-//LoanResult 审核贷款的金融机构信息
-type LoanResult struct {
+//LoanResultArg 审核贷款结果参数结构
+type LoanResultArg struct {
 	LoanID		string	`json:"loan_id"`	//贷款编号
 	OwnerName	string	`json:"ln_owner_name"`	//贷款人名称
 	Bank		string	`json:"ln_bank"`	//金融机构系统账号
@@ -116,9 +117,9 @@ type Bill struct {
 const BILL_TRANSFER_PREFIX="BLTF_"
 //BillTransfer 票据流转信息
 type BillTransfer struct {
-	BillID		string	`json:"bt_bill_id"`	//票据编号
-	Count		int		`json:"count"`	//票据已经流转的次数
-	Transfers	map[int]TransferInfo	`json:"transfers"`
+	BillID		string	//票据编号
+	Count		int		//票据已经流转的次数
+	Transfers	map[string]TransferInfo  //key：票据拥有者的系统账号
 }
 
 //TransferInfo 流转信息
@@ -130,25 +131,40 @@ type TransferInfo struct {
 }
 
 const PARENT_CHILD_KEY_PREFIX = "PC_"
-//ParentChilds 拆分后父子票据关系基本结构
-type ParentChilds struct {
+//BillChild 拆分后父子票据关系基本结构
+type BillChild struct {
 	ParentID	string		`json:"cd_parent_id"`	//父票据号
-	ChildBills	[]string	`json:"child_bills"`	//子票据号集合
+	Childs		[]string	`json:"child_bills"`	//子票据号集合
 }
 
-//BillSplitInfo 票据拆分结构
-type BillSplitInfo struct {
+//BillSplitInfo 票据拆分参数结构
+type BillSplitInfoArg struct {
 	BillID		string		`json:"bill_id"`	//票据号
 	OwnerName	string		`json:"owner_name"`	//持票人名称
-	Childs		[]BillChild	`json:"child_bills"`	//待拆分的票据
+	Childs		[]BillChildArg	`json:"child_bills"`	//待拆分的票据
 }
 
-//BillChild 待拆分的票据结构
-type BillChild struct {
+//BillChildArg 子票据参数结构
+type BillChildArg struct {
 	BillID		string	`json:"bill_id"`	//票据号
 	Owner		string	`json:"owner"`		//持票人账号
 	OwnerName	string	`json:"owner_name"`	//持票人名称
 	Amount		float64	`json:"amount"`		//票据金额
+}
+
+//TableDataArg 表数据记录新增、修改及查询参数结构
+type TableDataArg struct {
+	TableName	string		`json:"table_name"`	//表名
+	Data		interface{}	`json:"data"`	//数据
+}
+
+//Tables above
+var SF_TABLES = map[string]string{
+	"bill": "BILL_",
+	"loan": "LOAN_",
+	"contract": "CNTR_",
+	"bill_child": "BLCD_",
+	"bill_transfer": "BLTF_",
 }
 
 // chaincode response结构
@@ -161,7 +177,7 @@ type chaincodeRet struct {
 type SupplyFinance struct {
 }
 
-func (bsi BillSplitInfo) SumAmountOfChildBill() float64{
+func (bsi BillSplitInfoArg) SumAmountOfChildBill() float64{
 	var sum float64
 	sum = 0
 
@@ -204,7 +220,7 @@ func getRetString(code int, des string) string {
 
 // 根据票据编号取流转对象
 func getBillTransferObj(stub shim.ChaincodeStubInterface, id string) (BillTransfer, bool) {
-	bt := BillTransfer{BillID: id, Count: 0, Transfers: make(map[int]TransferInfo)}
+	bt := BillTransfer{BillID: id, Count: 0, Transfers: make(map[string]TransferInfo)}
 
 	bt_bytes, err := stub.GetState(bt.composeKey())
 
@@ -437,23 +453,50 @@ func (sfb *SupplyFinance) issueContractObj(stub shim.ChaincodeStubInterface, ct 
 	return "invoke issue success", true
 }
 
+func (td TableDataArg) isTableExist() bool {
+	_, exist := SF_TABLES[td.TableName]	
+	return exist
+}
+
 //issueBill 票据发布
-// args: 0 - {Bill Object}
+// args: 0 - {TableDataArg Object}
 func (sfb *SupplyFinance) issueBill(stub shim.ChaincodeStubInterface, args []string) pb.Response {
 	if len(args) != 1 {
-		res := getRetString(1, "Chaincode Invoke issue args != 1")
+		res := getRetString(1, "Chaincode Invoke issueBill args != 1")
 		return shim.Error(res)
 	}
+
+/*	var td TableDataArg
+	err := json.Unmarshal([]byte(args[0]), &td)
+	if err != nil {
+		res := getRetString(1, "Chaincode Invoke issueBill unmarshal failed")
+		return shim.Error(res)
+	}
+	
+	if !td.isTableExist() {
+		res := fmt.Sprintf("Chaincode Invoke issueBill failed, due to table[%s] not exist", td.TableName)
+		res = getRetString(1, res)
+		return shim.Error(res)
+	}
+	
+	var bill Bill
+	// 注意：json的key名称包含下划线时，下面的转换会得不到预期的值
+	// 用驼峰格式命名可解决
+	if err := ms.Decode(td.Data, &bill); err != nil {
+		res := getRetString(1, "Chaincode Invoke issueBill failed: unkown bill record format")
+		return shim.Error(res)
+	}
+*/
 
 	var bill Bill
 	err := json.Unmarshal([]byte(args[0]), &bill)
 
 	if err != nil {
-		res := getRetString(1, "Chaincode Invoke issue unmarshal failed")
+		res := getRetString(1, "Chaincode Invoke issueBill unmarshal failed")
 		return shim.Error(res)
 	}
 
-	msg, ok := sfb.issueBillObj(stub, &bill, -1, Endorsed)
+	msg, ok := sfb.issueBillObj(stub, &bill, -1, Endorsed, "bill")
 	if !ok {
 		res := getRetString(1, msg)
 		return shim.Error(res)
@@ -463,9 +506,9 @@ func (sfb *SupplyFinance) issueBill(stub shim.ChaincodeStubInterface, args []str
 	return shim.Success(res)
 }
 
-func (sfb *SupplyFinance) issueBillObj(stub shim.ChaincodeStubInterface, bill *Bill, parent_split_count int32, init_state string) (string, bool){
+func (sfb *SupplyFinance) issueBillObj(stub shim.ChaincodeStubInterface, bill *Bill, parent_split_count int32, init_state,table_name string) (string, bool){
 	// 根据票号 查找是否票号已存在
-	_, existbl := getBillObj(stub, bill.BillID)
+	_, existbl := getBillObj(stub, bill.composeKey(table_name))
 	if existbl {
 		res := fmt.Sprintf("Chaincode Invoke issue failed : the bill has existting, bill NO: %s", bill.BillID)
 		return res, false
@@ -478,7 +521,7 @@ func (sfb *SupplyFinance) issueBillObj(stub shim.ChaincodeStubInterface, bill *B
 	bill.SplitCount = parent_split_count + 1
 
 	// 保存票据
-	_, ok := putObj(stub, bill.BillID, *bill)
+	_, ok := putObj(stub, bill.composeKey(table_name), *bill)
 	if !ok {
 		return "Chaincode Invoke issue put bill failed", false
 	}
@@ -548,6 +591,10 @@ func issueLoanObj(stub shim.ChaincodeStubInterface, ln *Loan, init_state string)
 	}
 
 	return "invoke success", true
+}
+
+func (bl Bill) composeKey(tb_name string) string {
+	return SF_TABLES[tb_name] + bl.BillID
 }
 
 func (lr LoanRepayment) composeKey() string {
@@ -678,14 +725,14 @@ func (sfb *SupplyFinance) rejectLoan(stub shim.ChaincodeStubInterface, args []st
 }
 
 //refuseLoan 金融机构拒绝贷款 
-// args: 0 - {LoanResult object}
+// args: 0 - {LoanResultArg object}
 func (sfb *SupplyFinance) refuseLoan(stub shim.ChaincodeStubInterface, args []string) pb.Response {
 	if len(args) != 1 {
 		res := getRetString(1, "Chaincode Invoke refuseLoan args != 1")
 		return shim.Error(res)
 	}
 
-	var lr LoanResult
+	var lr LoanResultArg
 	err := json.Unmarshal([]byte(args[0]), &lr)
 
 	if err != nil {
@@ -754,14 +801,14 @@ func (sfb *SupplyFinance) makeLoan(stub shim.ChaincodeStubInterface, args []stri
 }
 
 //approveLoan 金融机构同意贷款
-// args: 0 - {LoanResult object}
+// args: 0 - {LoanResultArg object}
 func (sfb *SupplyFinance) approveLoan(stub shim.ChaincodeStubInterface, args []string) pb.Response {
 	if len(args) != 1 {
 		res := getRetString(1, "Chaincode Invoke approveLoan args != 1")
 		return shim.Error(res)
 	}
 
-	var lr LoanResult
+	var lr LoanResultArg
 	err := json.Unmarshal([]byte(args[0]), &lr)
 
 	if err != nil {
@@ -941,7 +988,7 @@ func (sfb *SupplyFinance) endorseContract(stub shim.ChaincodeStubInterface, args
 	bill.Owner = ct.Owner
 	bill.OwnerName = ct.OwnerName
 
-	msg, ok = sfb.issueBillObj(stub, &bill, -1, Endorsed)
+	msg, ok = sfb.issueBillObj(stub, &bill, -1, Endorsed, SF_TABLES["bill"])
 	if !ok {
 		res := getRetString(1, msg)
 		return shim.Error(res)
@@ -1031,7 +1078,7 @@ func (sfb *SupplyFinance) transferBill(stub shim.ChaincodeStubInterface, args []
 
 func setBillTransferThenPut(stub shim.ChaincodeStubInterface, bt *BillTransfer, ti TransferInfo) (string, bool){
 	bt.Count += 1
-	bt.Transfers[bt.Count] = ti
+	bt.Transfers[ti.NewOwner] = ti
 
 	// 如果不存在，则创建记录；如果已经存在，则用新值更新
 	_, ok := putObj(stub, bt.composeKey(), bt)
@@ -1244,7 +1291,7 @@ func (sfb *SupplyFinance) splitBill(stub shim.ChaincodeStubInterface, args []str
 		return shim.Error(res)
 	}
 
-	var bsi BillSplitInfo
+	var bsi BillSplitInfoArg
 	err := json.Unmarshal([]byte(args[0]), &bsi)
 
 	if err != nil {
@@ -1299,7 +1346,7 @@ func (sfb *SupplyFinance) splitBill(stub shim.ChaincodeStubInterface, args []str
 		b_child.OwnerName = bc.OwnerName
 		b_child.Amount = bc.Amount
 
-		msg, ok := sfb.issueBillObj(stub, &b_child, b.SplitCount, Endorsed)
+		msg, ok := sfb.issueBillObj(stub, &b_child, b.SplitCount, Endorsed, SF_TABLES["bill"])
 		if !ok {
 			res := getRetString(1, msg)
 			return shim.Error(res)
@@ -1315,7 +1362,7 @@ func (sfb *SupplyFinance) splitBill(stub shim.ChaincodeStubInterface, args []str
 		return shim.Error(res)
 	}
 
-	msg, ok := putParentChilds(stub, bsi.BillID, child_bills)
+	msg, ok := putBillChild(stub, bsi.BillID, child_bills)
 	if !ok {
 		return shim.Error(msg)
 	}
@@ -1325,10 +1372,10 @@ func (sfb *SupplyFinance) splitBill(stub shim.ChaincodeStubInterface, args []str
 
 }
 
-func putParentChilds(stub shim.ChaincodeStubInterface, parent_id string, child_bills []string) (string, bool) {
-	var pc ParentChilds
+func putBillChild(stub shim.ChaincodeStubInterface, parent_id string, child_bills []string) (string, bool) {
+	var pc BillChild
 	pc.ParentID = parent_id
-	pc.ChildBills = child_bills
+	pc.Childs = child_bills
 
 	key := PARENT_CHILD_KEY_PREFIX + parent_id
 	_, ok := putObj(stub, key, pc)
