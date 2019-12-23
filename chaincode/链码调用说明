@@ -1,3 +1,14 @@
+// 表名列表
+{
+	"bill" // 票据表
+	"loan" // 贷款表
+	"contract"  // 合同表
+	"bill_child" // 拆分后，子票据集合表
+	"bill_transfer" // 票据流转表
+	"loan_repayment" // 贷款还款相关信息表，比如确认还款的实际金额、是否提前放款、放款时间等
+	"transferred_bill" // 企业流转出去的票据集合表
+}
+
 // 票据、贷款、合同状态
 const (
 	BillIssued	= "issued"	// 票据通过合同生成
@@ -38,10 +49,10 @@ type Loan struct {
 	ApplyDate	int64	`json:"apply_date"`	//贷款申请时间
 }
 
-//LoanRepayment 还贷相关信息
-type LoanRepayment struct {
-	LoanID		string	`json:"lr_loan_id"`	//贷款编号
-	IsPrepayment	bool	`json:"prepayment"` //是否提前还款
+//BillChild 拆分后父子票据关系基本结构
+type BillChild struct { --- 这个字段改了
+	ParentID	string		`json:"cd_parent_id"`	//父票据号
+	Childs		[]string	`json:"childs"`	//子票据号集合 --- 这个字段名改了
 }
 
 //Contract 合同基本结构
@@ -105,15 +116,21 @@ type Bill struct {
 
 21. 金融机构同意贷款后放贷
 函数：makeLoan
-参数：2个
+参数：3个
 参数1：贷款编号
 参数2：金融机构名称
+参数3：放款时间
 
 20. 贷款还款
 函数：repayLoan
-参数：2个
-参数1：贷款编号
-参数2：金融机构名称
+参数：1个
+{"lr_loan_id":"aa",
+"lr_bank_name":"aa",
+"actual_repayment_date":12334,
+"actual_ln_amount":123.56,
+"actual_bank_rate":11.23,
+"actual_bank_interest":13.23
+}
 
 19. 上传生成合同	
 函数：issueContract
@@ -250,7 +267,8 @@ type Bill struct {
 函数：issueBill
 参数：1个
 参数样例：
-{
+{"table_name":"bill",
+"data":{
     "parent_id":"111",
     "bill_id":"66",
     "amount":3000,
@@ -266,6 +284,7 @@ type Bill struct {
     "issuer_name":"in",
     "owner":"oi",
     "owner_name":"on"
+}
 }
 
 4. 拆分票据
@@ -293,8 +312,10 @@ type Bill struct {
 
 3. 用ID查询票据
 queryByID
-参数：1个
-参数1：贷款或票据ID
+参数：2个
+参数1：表名
+参数2：ID(唯一主键)
+
 
 2. 分页查询票据
 函数：queryBillsWithPagination
