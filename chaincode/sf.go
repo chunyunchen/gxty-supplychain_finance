@@ -128,6 +128,7 @@ type Bill struct {
 	OwnerName	string	`json:"owner_name"`	//持票人名称
 	State		string	`json:"state"`		//票据状态(omitempty,json反序列化显示给客户端时不返回空字段)
 	SplitCount	int32	`json:"split_count"`    //控制原始票据拆分次数，该值表示当前票据是通过几次拆分而生成的
+	Transferred	bool	`json:"transferred"`    //票据是否流转过，false - 没流转过的票据，true - 流转过的票据
 }
 
 //TransferredBill 企业流转出去的票据集合结构
@@ -1237,6 +1238,7 @@ func (sfb *SupplyFinance) transferBill(stub shim.ChaincodeStubInterface, args []
 		// 更新票据所有者
 	bill.Owner = ti.NewOwner
 	bill.OwnerName = ti.NewOwnerName
+	bill.Transferred = true
 	msg, ok2 = setBillStateThenPut(stub, &bill, Endorsed, Endorsed)
 	if !ok2 {
 		res := getRetString(1, msg)
