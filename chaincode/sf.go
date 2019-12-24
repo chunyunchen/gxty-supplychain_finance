@@ -139,8 +139,8 @@ type TransferredBill struct {
 //BillTransfer 票据流转信息结构
 type BillTransfer struct {
 	BillID		string	//票据编号
-	Count		int		//票据已经流转的次数
-	Transfers	map[int]TransferInfoArg  //key：票据拥有者的系统账号
+	Count		int		//票据已经流转的总次数
+	Transfers	map[int]TransferInfoArg  //key：流转次数序号，从1开始
 }
 
 //TransferInfoArg 流转信息参数
