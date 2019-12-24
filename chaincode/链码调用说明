@@ -9,6 +9,41 @@
 	"transferred_bill" // 企业流转出去的票据集合表
 }
 
+// 对应表"bill_child"
+//BillChild 拆分后父子票据关系基本结构
+type BillChild struct {
+	ParentID	string		`json:"cd_parent_id"`	//父票据号
+	Childs		[]string	`json:"child_bills"`	//子票据号集合
+}
+
+// 对应表"bill_transfer"
+//BillTransfer 票据流转信息结构
+type BillTransfer struct {
+	BillID		string	//票据编号
+	Count		int		//票据已经流转的次数
+	Transfers	map[string]TransferInfoArg  //key：票据拥有者的系统账号
+}
+
+// 对应表"loan_repayment"
+//LoanRepayment 还款信息结构
+type LoanRepayment struct {
+	LoanID		string	`json:"lr_loan_id"`	//贷款编号
+	IsPrepayment	bool	`json:"prepayment"` //是否提前还款
+	makeLoanDate	int64	`json:"make_loan_date,omitempty"`	//贷款放款时间
+	ActualRepaymentDate   int64	`json:"actual_repayment_date,omitempty"`	//实际还款时间
+	ActualAmount		float64	`json:"actual_lr_amount,omitempty"`	//贷款实际还款金额
+	AmountUnit	string	`json:"ln_amount_unit,omitempty"`	//金额单位，元或美元等
+	ActualBankRate	float64	`json:"actual_bank_rate,omitempty"`	//还款时的贷款利率
+	ActualBankInterest	float64	`json:"actual_bank_interest,omitempty"`	//还款时的贷款利息
+}
+
+// 对应表"transferred_bill"
+//TransferredBill 企业流转出去的票据集合结构
+type TransferredBill struct {
+	Owner	string		`json:"tb_owner"`	//企业系统账号
+	Bills	[]string	`json:"bills"`	//票据号集合
+}
+
 // 票据、贷款、合同状态
 const (
 	BillIssued	= "issued"	// 票据通过合同生成
@@ -28,6 +63,7 @@ const (
 	Rejected	= "rejected"	// 拒绝为合同或票据或贷款担保
 )
 
+// 对应表"loan"
 //Loan 贷款信息基本结构
 type Loan struct {
 	LoanID		string	`json:"loan_id"`	//贷款编号
@@ -49,12 +85,7 @@ type Loan struct {
 	ApplyDate	int64	`json:"apply_date"`	//贷款申请时间
 }
 
-//BillChild 拆分后父子票据关系基本结构
-type BillChild struct { --- 这个字段改了
-	ParentID	string		`json:"cd_parent_id"`	//父票据号
-	Childs		[]string	`json:"childs"`	//子票据号集合 --- 这个字段名改了
-}
-
+// 对应表"contract"
 //Contract 合同基本结构
 type Contract struct {
 	ContractID	string	`json:"contract_id"`	//合同号
@@ -77,6 +108,7 @@ type Contract struct {
 	RefuseReason	string	`json:"refused_reason,omitempty"`	//拒绝担保合同原因
 }
 
+// 对应表"bill"
 //Bill 票据基本结构
 type Bill struct {
 	ParentID	string	`json:"parent_id"`	//票据来源，生成票据的合同号或被拆分的票据号

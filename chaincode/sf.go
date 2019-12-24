@@ -32,7 +32,7 @@ const (
 )
 
 // 原始票据最大拆分深度/次数
-const SplitThreshold = 2
+const SplitThreshold = 1
 
 //Loan 贷款信息基本结构
 type Loan struct {
@@ -64,7 +64,7 @@ type LoanResultArg struct {
 	RefuseReason	string	`json:"refused_reason"`	//拒绝贷款原因
 }
 
-//LoanRepayment 还贷信息结构
+//LoanRepayment 还款信息结构
 type LoanRepayment struct {
 	LoanID		string	`json:"lr_loan_id"`	//贷款编号
 	IsPrepayment	bool	`json:"prepayment"` //是否提前还款
@@ -136,14 +136,14 @@ type TransferredBill struct {
 	Bills	[]string	`json:"bills"`	//票据号集合
 }
 
-//BillTransfer 票据流转信息
+//BillTransfer 票据流转信息结构
 type BillTransfer struct {
 	BillID		string	//票据编号
 	Count		int		//票据已经流转的次数
-	Transfers	map[string]TransferInfoArg  //key：票据拥有者的系统账号
+	Transfers	map[int]TransferInfoArg  //key：票据拥有者的系统账号
 }
 
-//TransferInfoArg 流转信息
+//TransferInfoArg 流转信息参数
 type TransferInfoArg struct {
 	BillID			string	`json:"ti_bill_id"`	//票据编号
 	OldOwner		string	`json:"old_owner"`	//流转前票据所有者系统账号
@@ -249,7 +249,7 @@ func getRetString(code int, des string) string {
 
 // 根据票据编号取流转对象
 func getBillTransferObj(stub shim.ChaincodeStubInterface, id string) (BillTransfer, int) {
-	bt := BillTransfer{BillID: id, Count: 0, Transfers: make(map[string]TransferInfoArg)}
+	bt := BillTransfer{BillID: id, Count: 0, Transfers: make(map[int]TransferInfoArg)}
 
 	bt_bytes, err := stub.GetState(bt.composeKey("bill_transfer"))
 
@@ -1249,7 +1249,7 @@ func (sfb *SupplyFinance) transferBill(stub shim.ChaincodeStubInterface, args []
 
 func setBillTransferThenPut(stub shim.ChaincodeStubInterface, bt *BillTransfer, ti TransferInfoArg) (string, bool){
 	bt.Count += 1
-	bt.Transfers[ti.NewOwner] = ti
+	bt.Transfers[bt.Count] = ti
 
 	// 如果不存在，则创建记录；如果已经存在，则用新值更新
 	_, ok := putObj(stub, bt.composeKey("bill_transfer"), bt)
@@ -1498,7 +1498,7 @@ func (sfb *SupplyFinance) splitBill(stub shim.ChaincodeStubInterface, args []str
 		return shim.Error(res)
 	}
 
-	if b.SplitCount >= 2 {
+	if b.SplitCount >= SplitThreshold {
 		res := fmt.Sprintf("Chaincode Invoke split failed : the original bill has been spit up to max times, current threshold: %d", SplitThreshold)
 		res = getRetString(1, res)
 		return shim.Error(res)
@@ -1706,7 +1706,7 @@ func constructQueryResponseFromIterator(resultsIterator shim.StateQueryIteratorI
 	return &buffer, nil
 }
 
-//queryTXChainForBill 根据Key的交易链
+//queryTXChainForBill 根据Key查询交易链
 //  0 - Table Name; 1 - ID ;
 func (t *SupplyFinance) queryTXChainForBill(stub shim.ChaincodeStubInterface, args []string) pb.Response {
 	if len(args) != 2 {
