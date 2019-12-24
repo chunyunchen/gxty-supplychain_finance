@@ -1706,16 +1706,18 @@ func constructQueryResponseFromIterator(resultsIterator shim.StateQueryIteratorI
 	return &buffer, nil
 }
 
-//queryTXChainForBill 根据票号取得票据交易链
-//  0 - Bill_No ;
+//queryTXChainForBill 根据Key的交易链
+//  0 - Table Name; 1 - ID ;
 func (t *SupplyFinance) queryTXChainForBill(stub shim.ChaincodeStubInterface, args []string) pb.Response {
-	if len(args) != 1 {
-		return shim.Error("Chaincode query[queryTXChainForBill] failed: argument expecting 1")
+	if len(args) != 2 {
+		return shim.Error("Chaincode query[queryTXChainForBill] failed: argument expecting 2")
 	}
 
-	billID := args[0]
+	table_name := args[0]
+	id := args[1]
+	key := SF_TABLES[table_name] + id
 
-	resultsIterator, err := stub.GetHistoryForKey(billID)
+	resultsIterator, err := stub.GetHistoryForKey(key)
 	if err != nil {
 		return shim.Error(err.Error())
 	}
