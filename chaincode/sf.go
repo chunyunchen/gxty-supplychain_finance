@@ -55,6 +55,38 @@ type Loan struct {
 	ApplyDate	int64	`json:"apply_date"`	//贷款申请时间
 }
 
+func (ln Loan) ValidateGuarantorName(expectedV string) bool {
+	if ln.GuarantorName == expectedV {
+		return true
+	}
+	
+	return false
+}
+
+func (ln Loan) ValidateBankName(expectedV string) bool {
+	if ln.BankName == expectedV {
+		return true
+	}
+	
+	return false
+}
+
+func (ln Loan) ValidateOwnerName(expectedV string) bool {
+	if ln.OwnerName == expectedV {
+		return true
+	}
+	
+	return false
+}
+
+func (ln Loan) ValidateState(expectedV string) bool {
+	if ln.State == expectedV {
+		return true
+	}
+	
+	return false
+}
+
 //LoanResultArg 审核贷款结果参数结构
 type LoanResultArg struct {
 	LoanID		string	`json:"loan_id"`	//贷款编号
@@ -109,6 +141,14 @@ type Contract struct {
 	RefuseReason	string	`json:"refused_reason,omitempty"`	//拒绝担保合同原因
 }
 
+func (ct Contract) ValidateDraweeName(expectedV string) bool {
+	if ct.DraweeName == expectedV {
+		return true
+	}
+	
+	return false
+}
+
 //Bill 票据基本结构
 type Bill struct {
 	ParentID	string	`json:"parent_id"`	//票据来源，生成票据的合同号或被拆分的票据号
@@ -129,6 +169,87 @@ type Bill struct {
 	State		string	`json:"state"`		//票据状态(omitempty,json反序列化显示给客户端时不返回空字段)
 	SplitCount	int32	`json:"split_count"`    //控制原始票据拆分次数，该值表示当前票据是通过几次拆分而生成的
 	Transferred	bool	`json:"transferred"`    //票据是否流转过，false - 没流转过的票据，true - 流转过的票据
+}
+
+const(
+	THOUSAND int64 = 1000
+    TEN_MILLION int64 = 1000000
+)
+
+func getSecAndNSec(milliSec int64) (int64, int64){
+	Sec := milliSec / THOUSAND
+	NSec := milliSec % THOUSAND * TEN_MILLION
+	return Sec,NSec
+}
+
+func afterNowDate(t time.Time) bool {
+	now := time.Now()
+	
+	if t.Year() > now.Year() {
+		return true
+	} else if t.Year() == now.Year() {
+		if t.Month() > now.Month() {
+			return true
+		} else if t.Month() == now.Month() {
+			if t.Day() >= now.Day() {
+				return true
+			}
+		}
+	}
+	
+	return false
+}
+
+func (bl Bill) ValidateDueDate() bool {
+	// 检查票据的到期时间是否已过期
+	Sec, NSec := getSecAndNSec(bl.DueDate)
+    t := time.Unix(Sec, NSec)
+
+	if afterNowDate(t) {
+		return true
+	}
+	
+ 	return false
+}
+ 
+func (bl Bill) ValidateSplitCount(expectedV int32) bool {
+	if bl.SplitCount < expectedV {
+		return true
+	}
+	
+	return false
+}
+
+func (bl Bill) ValidateDraweeName(expectedV string) bool {
+	if bl.DraweeName == expectedV {
+		return true
+	}
+	
+	return false
+}
+
+func (bl Bill) ValidateOwner(expectedV string) bool {
+	if bl.Owner == expectedV {
+		return true
+	}
+	
+	return false
+}
+
+func (bl Bill) ValidateOwnerName(expectedV string) bool {
+	if bl.OwnerName == expectedV {
+		return true
+	}
+	
+	return false
+}
+
+func (bl Bill) ValidateState(expectedV string) bool {
+	if bl.State == expectedV {
+		return true
+	}
+	
+	return false
 }
 
 //TransferredBill 企业流转出去的票据集合结构
@@ -197,6 +318,74 @@ var SF_TABLES = map[string]string{
 	"transferred_bill": "TFBL_",
 }
 
+type DocTable struct{
+	Name string
+	stub shim.ChaincodeStubInterface
+}
+
+func (dt DocTable) composeKey(id string) string {
+	return SF_TABLES[dt.Name] + id
+}
+
+func (dt DocTable) GetObjectBytes(id string) ([]byte, error) {
+	obj_bytes, err := dt.stub.GetState(dt.composeKey(id))
+
+	if err != nil {
+		return nil, err
+	}
+
+	return obj_bytes, nil
+
+}
+
+// pObj: pointer to individual object
+func (dt DocTable) GetObject(id string, pObj interface{}) error {
+	obj_bytes, err := dt.GetObjectBytes(id)
+	
+	if err != nil {
+		return err
+	} else if obj_bytes != nil {
+		err = json.Unmarshal(obj_bytes, pObj)
+		if err != nil {
+			return err
+		}
+	}
+	
+	return nil
+}
+
+func (dt DocTable) SaveObject(id string, obj interface{}) error {
+	obj_bytes, err := json.Marshal(obj)
+	if err != nil {
+		return err
+	}
+
+	err = dt.stub.PutState(dt.composeKey(id), obj_bytes)
+	if err != nil {
+		return err
+	}
+	
+	return nil
+}
+
+
+func (dt DocTable) IsObjectExist(id string) (bool, error) {
+	obj_bytes, err := dt.GetObjectBytes(id)
+	
+	if err != nil {
+		return false, err
+	} else if obj_bytes == nil {
+		return false, nil
+	}
+	
+	return true, nil
+}
+
+func (dt DocTable) IsTableExist() bool {
+	_, exist := SF_TABLES[dt.Name]
+	return exist
+}
+
 // chaincode response结构
 type chaincodeRet struct {
 	Code int    // 0 success otherwise 1
@@ -248,173 +437,15 @@ func getRetString(code int, des string) string {
 	return string(b[:])
 }
 
-// 根据票据编号取流转对象
-func getBillTransferObj(stub shim.ChaincodeStubInterface, id string) (BillTransfer, int) {
-	bt := BillTransfer{BillID: id, Count: 0, Transfers: make(map[int]TransferInfoArg)}
-
-	bt_bytes, err := stub.GetState(bt.composeKey("bill_transfer"))
+// pObj: pointer to individual object
+func NewObjectFromJsonString(jsonStr string, pObj interface{}) error {
+	err := json.Unmarshal([]byte(jsonStr), pObj)
 
 	if err != nil {
-		return bt, AnyError
-	} else {
-		if bt_bytes != nil {
-			err = json.Unmarshal(bt_bytes, &bt)
-			if err != nil {
-				return bt, AnyError
-			}
-		} else {
-			return bt, ObjectNew
-		}
-	}
-
-	return bt, ObjectExist
-}
-
-// 根据贷款编号取还款信息对象
-func getLoanRepaymentObj(stub shim.ChaincodeStubInterface, loanNo string) (LoanRepayment, int) {
-	lr := LoanRepayment{LoanID: loanNo}
-
-	lr_bytes, err := stub.GetState(lr.composeKey("loan_repayment"))
-
-	if err != nil {
-		return lr, AnyError
-	} else {
-		if lr_bytes != nil {
-			err = json.Unmarshal(lr_bytes, &lr)
-			if err != nil {
-				return lr, AnyError
-			}
-		} else {
-			return lr, ObjectNew
-		}
-	}
-
-	return lr, ObjectExist
-}
-
-// 根据贷款编号取贷款对象
-func getLoanObj(stub shim.ChaincodeStubInterface, loanNo string) (Loan, int) {
-	ln := Loan{LoanID: loanNo}
-
-	ln_bytes, err := stub.GetState(ln.composeKey("loan"))
-
-	if err != nil {
-		return ln, AnyError
-	} else {
-		if ln_bytes != nil {
-			err = json.Unmarshal(ln_bytes, &ln)
-			if err != nil {
-				return ln, AnyError
-			}
-		} else {
-			return ln, ObjectNew
-		}
+		return err
 	}
 	
-	return ln, ObjectExist
-}
-
-// 根据取出合同对象
-func getContractObj(stub shim.ChaincodeStubInterface, contractNo string) (Contract, int) {
-	contract := Contract{ContractID: contractNo}
-
-	ct_bytes, err := stub.GetState(contract.composeKey("contract"))
-	
-	if err != nil {
-		return contract, AnyError
-	} else {
-		if ct_bytes != nil {
-			err = json.Unmarshal(ct_bytes, &contract)
-			if err != nil {
-				return contract, AnyError
-			}
-		} else {
-			return contract, ObjectNew
-		}
-	}
-	
-	return contract, ObjectExist
-}
-
-// 根据票号取出票据对象
-func getBillObj(stub shim.ChaincodeStubInterface, billNo string) (Bill, int) {
-	bill := Bill{BillID: billNo}
-
-	bill_bytes, err := stub.GetState(bill.composeKey("bill"))
-
-	if err != nil {
-		return bill, AnyError
-	} else {
-		if bill_bytes != nil {
-			err = json.Unmarshal(bill_bytes, &bill)
-			if err != nil {
-				return bill, AnyError
-			}
-		} else {
-			return bill, ObjectNew
-		}
-	}
-	
-	return bill, ObjectExist
-}
-
-// 根据票号取出BillChild对象
-func getBillChildObj(stub shim.ChaincodeStubInterface, parentBillNo string) (BillChild, int) {
-	bc := BillChild{ParentID: parentBillNo}
-
-	bc_bytes, err := stub.GetState(bc.composeKey("bill_child"))
-
-	if err != nil {
-		return bc, AnyError
-	} else {
-		if bc_bytes != nil {
-			err = json.Unmarshal(bc_bytes, &bc)
-			if err != nil {
-				return bc, AnyError
-			}
-		} else {
-			return bc, ObjectNew
-		}
-	}
-	
-	return bc, ObjectExist
-} 
-
-// 根据票号取出TransferredBill对象
-func getTransferredBillObj(stub shim.ChaincodeStubInterface, owner string) (TransferredBill, int) {
-	tb := TransferredBill{Owner: owner}
-    tb.Bills = make([]string, 0)
-	
-	tb_bytes, err := stub.GetState(tb.composeKey("transferred_bill"))
-
-	if err != nil {
-		return tb, AnyError
-	} else {
-		if tb_bytes != nil {
-			err = json.Unmarshal(tb_bytes, &tb)
-			if err != nil {
-				return tb, AnyError
-			}
-		} else {
-			return tb, ObjectNew
-		}
-	}
-	
-	return tb, ObjectExist
-} 
-
-// 保存对象
-func putObj(stub shim.ChaincodeStubInterface, key string, obj interface{}) ([]byte, bool) {
-	bytes, err := json.Marshal(obj)
-	if err != nil {
-		return nil, false
-	}
-
-	err = stub.PutState(key, bytes)
-	if err != nil {
-		return nil, false
-	}
-	return bytes, true
+	return nil
 }
 
 //Init chaincode基本接口
@@ -517,10 +548,10 @@ func (sfb *SupplyFinance) issueContract(stub shim.ChaincodeStubInterface, args [
 	}
 
 	var ct Contract
-	err := json.Unmarshal([]byte(args[0]), &ct)
-
+	err := NewObjectFromJsonString(args[0], &ct)
 	if err != nil {
-		res := getRetString(1, "Chaincode Invoke issue contract unmarshal failed")
+		res := fmt.Sprintf("Chaincode Invoke issueContract failed: %s", err.Error())
+		res = getRetString(1, res)
 		return shim.Error(res)
 	}
 
@@ -535,10 +566,14 @@ func (sfb *SupplyFinance) issueContract(stub shim.ChaincodeStubInterface, args [
 }
 
 func (sfb *SupplyFinance) issueContractObj(stub shim.ChaincodeStubInterface, ct *Contract, init_state string) (string, bool){
-	// ID必须唯一
-	_, existbl := getContractObj(stub, ct.ContractID)
-	if existbl == ObjectExist {
-		res := fmt.Sprintf("Chaincode Invoke issue failed : the ct has existting, contract NO: %s", ct.ContractID)
+	// ID唯一
+	dt := DocTable{"contract", stub}
+	
+	exist, err := dt.IsObjectExist(ct.ContractID)
+	if err != nil {
+		return err.Error(), false
+	} else if exist {
+		res := fmt.Sprintf("Chaincode Invoke issueContractObj failed : the bill has existting, bill NO: %s", ct.ContractID)
 		return res, false
 	}
 
@@ -546,9 +581,9 @@ func (sfb *SupplyFinance) issueContractObj(stub shim.ChaincodeStubInterface, ct 
 	ct.State = init_state
 
 	// 保存
-	_, ok := putObj(stub, ct.composeKey("contract"), *ct)
-	if !ok {
-		return "Chaincode Invoke issue put contract failed", false
+	err = dt.SaveObject(ct.ContractID, *ct)
+	if err != nil {
+		return err.Error(), false
 	}
 
 	return "invoke issue success", true
@@ -590,10 +625,10 @@ func (sfb *SupplyFinance) issueBill(stub shim.ChaincodeStubInterface, args []str
 */
 
 	var bill Bill
-	err := json.Unmarshal([]byte(args[0]), &bill)
-
+	err := NewObjectFromJsonString(args[0], &bill)
 	if err != nil {
-		res := getRetString(1, "Chaincode Invoke issueBill unmarshal failed")
+		res := fmt.Sprintf("Chaincode Invoke issueBill failed: %s", err.Error())
+		res = getRetString(1, res)
 		return shim.Error(res)
 	}
 
@@ -609,9 +644,13 @@ func (sfb *SupplyFinance) issueBill(stub shim.ChaincodeStubInterface, args []str
 
 func (sfb *SupplyFinance) issueBillObj(stub shim.ChaincodeStubInterface, bill *Bill, parent_split_count int32, init_state string) (string, bool){
 	// 根据票号 查找是否票号已存在
-	_, existbl := getBillObj(stub, bill.BillID)
-	if existbl == ObjectExist {
-		res := fmt.Sprintf("Chaincode Invoke issue failed : the bill has existting, bill NO: %s", bill.BillID)
+	dt := DocTable{"bill", stub}
+	exist, err := dt.IsObjectExist(bill.BillID)
+	if err != nil {
+		res := fmt.Sprintf("Chaincode Invoke issueBillObj failed : %s", err.Error())
+		return res, false
+	} else if exist {
+		res := fmt.Sprintf("Chaincode Invoke issueBillObj failed : the bill has existting, bill NO: %s", bill.BillID)
 		return res, false
 	}
 
@@ -622,9 +661,9 @@ func (sfb *SupplyFinance) issueBillObj(stub shim.ChaincodeStubInterface, bill *B
 	bill.SplitCount = parent_split_count + 1
 
 	// 保存票据
-	_, ok := putObj(stub, bill.composeKey("bill"), *bill)
-	if !ok {
-		return "Chaincode Invoke issue put bill failed", false
+	err = dt.SaveObject(bill.BillID, *bill)
+	if err != nil {
+		return err.Error(), false
 	}
 
 	return "invoke issue success", true
@@ -650,14 +689,13 @@ func tryPutApplyLoanObj(stub shim.ChaincodeStubInterface, args []string, init_st
 	}
 
 	var ln Loan
-	err := json.Unmarshal([]byte(args[0]), &ln)
-
+	err := NewObjectFromJsonString(args[0], &ln)
 	if err != nil {
-		res := getRetString(1, "Chaincode Invoke applyLoan unmarshal failed")
+		res := fmt.Sprintf("Chaincode Invoke tryPutApplyLoanObj failed: %s", err.Error())
+		res = getRetString(1, res)
 		return shim.Error(res)
 	}
 
-	ln.ApplyDate = time.Now().Unix()
 	msg, ok := issueLoanObj(stub, &ln, init_state)
 	if !ok {
 		res := getRetString(1, msg)
@@ -676,9 +714,12 @@ func tryPutApplyLoanObj(stub shim.ChaincodeStubInterface, args []string, init_st
 
 func issueLoanObj(stub shim.ChaincodeStubInterface, ln *Loan, init_state string) (string, bool){
 	// 根据贷款编号 查找是否贷款申请已存在
-	_, existbl := getLoanObj(stub, ln.LoanID)
-	if existbl == ObjectExist {
-		res := fmt.Sprintf("Chaincode Invoke issueLoanObj failed : the loan has existting, loan NO: %s", ln.LoanID)
+	dt := DocTable{"loan", stub}
+	exist, err := dt.IsObjectExist(ln.LoanID)
+	if err != nil {
+		return err.Error(), false
+	} else if exist {
+		res := fmt.Sprintf("Chaincode Invoke issueLoanObj failed : the bill has existting, bill NO: %s", ln.LoanID)
 		return res, false
 	}
 
@@ -686,40 +727,12 @@ func issueLoanObj(stub shim.ChaincodeStubInterface, ln *Loan, init_state string)
 	ln.State = init_state
 
 	// 保存
-	_, ok := putObj(stub, ln.composeKey("loan"), *ln)
-	if !ok {
-		return "Chaincode Invoke issueLoanObj put bytes failed", false
+	err = dt.SaveObject(ln.LoanID, *ln)
+	if err != nil {
+		return err.Error(), false
 	}
 
 	return "invoke success", true
-}
-
-func (bl Bill) composeKey(tb_name string) string {
-	return SF_TABLES[tb_name] + bl.BillID
-}
-
-func (lr LoanRepayment) composeKey(tb_name string) string {
-	return SF_TABLES[tb_name] + lr.LoanID
-}
-
-func (bt BillTransfer) composeKey(tb_name string) string {
-	return SF_TABLES[tb_name] + bt.BillID
-}
-
-func (lr Loan) composeKey(tb_name string) string {
-	return SF_TABLES[tb_name] + lr.LoanID
-}
-
-func (ct Contract) composeKey(tb_name string) string {
-	return SF_TABLES[tb_name] + ct.ContractID
-}
-
-func (bc BillChild) composeKey(tb_name string) string {
-	return SF_TABLES[tb_name] + bc.ParentID
-}
-
-func (tb TransferredBill) composeKey(tb_name string) string {
-	return SF_TABLES[tb_name] + tb.Owner
 }
 
 func setLoanRepaymentThenPut(stub shim.ChaincodeStubInterface, lr *LoanRepayment, lra *LoanRepaymentArg) (string, bool){
@@ -730,13 +743,14 @@ func setLoanRepaymentThenPut(stub shim.ChaincodeStubInterface, lr *LoanRepayment
 		lr.ActualBankRate      = lra.ActualBankRate
 		lr.ActualBankInterest  = lra.ActualBankInterest	
 	}
-	// 保存
-	// 如果不存在，则创建记录；如果已经存在，则用新值更新
-	_, ok := putObj(stub, lr.composeKey("loan_repayment"), *lr)
-	if !ok {
-		return "Chaincode Invoke issueLoanRepaymentObj put bytes failed", false
-	}
 
+	dt := DocTable{"loan_repayment", stub}
+	// 保存
+	err := dt.SaveObject(lr.LoanID, *lr)
+	if err != nil {
+		return err.Error(), false
+	}
+	
 	return "invoke success", true
 }
 
@@ -755,20 +769,34 @@ func (sfb *SupplyFinance) repayLoan(stub shim.ChaincodeStubInterface, args []str
 		return shim.Error(res)
 	}
 	
-	loan, ok := getLoanObj(stub, lra.LoanID)
-	if ok == ObjectNew || ok == AnyError {
-		res := getRetString(1, "Chaincode Invoke repayLoan get loan error")
+	dt := DocTable{"loan", stub}
+	
+	exist, err := dt.IsObjectExist(lra.LoanID)
+	if err != nil {
+		res := fmt.Sprintf("Chaincode Invoke repayLoan failed : %s", err.Error())
+		res = getRetString(1, res)
+		return shim.Error(res)
+	} else if !exist {
+		res := fmt.Sprintf("Chaincode Invoke repayLoan failed : the loan is not existing, loan NO: %s", lra.LoanID)
+		res = getRetString(1, res)
 		return shim.Error(res)
 	}
+	
+	var loan Loan
+	dt.GetObject(lra.LoanID, &loan)
 
 	if loan.BankName != lra.BankName {
 		res := getRetString(1, "Chaincode Invoke repayLoan failed: guarantor's name is not same with current's")
 		return shim.Error(res)
 	}
 
-	lr, ok := getLoanRepaymentObj(stub, loan.LoanID)
-	if ok == AnyError {
-		res := getRetString(1, "Chaincode Invoke repayLoan get LoanRepayment error")
+	dt = DocTable{"loan_repayment", stub}	
+	lr := LoanRepayment{LoanID: loan.LoanID}
+	
+	err = dt.GetObject(loan.LoanID, &lr)
+	if err != nil {
+		res := fmt.Sprintf("Chaincode Invoke repayLoan failed : %s", err.Error())
+		res = getRetString(1, res)
 		return shim.Error(res)
 	}
 	
@@ -785,12 +813,21 @@ func (sfb *SupplyFinance) repayLoan(stub shim.ChaincodeStubInterface, args []str
 		return shim.Error(res)
 	}
 
-	bill, ok := getBillObj(stub, loan.BillID)
-	if ok == ObjectNew || ok == AnyError {
-		res := fmt.Sprintf("Chaincode Invoke repayLoan get bill failed: the bill bound to loan is not exist, bill NO: %s", loan.BillID)
+	dt = DocTable{"bill", stub}
+	
+	exist, err = dt.IsObjectExist(loan.BillID)
+	if err != nil {
+		res := fmt.Sprintf("Chaincode Invoke repayLoan failed : %s", err.Error())
+		res = getRetString(1, res)
+		return shim.Error(res)
+	} else if !exist {
+		res := fmt.Sprintf("Chaincode Invoke repayLoan failed : the bill is not existing, bill NO: %s", loan.BillID)
 		res = getRetString(1, res)
 		return shim.Error(res)
 	}
+	
+	var bill Bill
+	dt.GetObject(loan.BillID, &bill)
 
 	msg, ok2 = setBillStateThenPut(stub, &bill, BillMorgaged, BillRedeemed)
 	if !ok2 {
@@ -806,17 +843,28 @@ func (sfb *SupplyFinance) repayLoan(stub shim.ChaincodeStubInterface, args []str
 // args: 0 - Loan ID; 1 -Guarantor Name
 func (sfb *SupplyFinance) endorseLoan(stub shim.ChaincodeStubInterface, args []string) pb.Response {
 	if len(args) != 2 {
-		res := getRetString(1, "Chaincode Invoke endorse args count expecting 2")
+		res := getRetString(1, "Chaincode Invoke endorseLoan args count expecting 2")
 		return shim.Error(res)
 	}
 
-	loan, ok := getLoanObj(stub, args[0])
-	if ok == ObjectNew || ok == AnyError {
-		res := getRetString(1, "Chaincode Invoke endorse get loan error")
+	loanID := args[0]
+	dt := DocTable{"loan", stub}
+	
+	exist, err := dt.IsObjectExist(loanID)
+	if err != nil {
+		res := fmt.Sprintf("Chaincode Invoke endorseLoan failed : %s", err.Error())
+		res = getRetString(1, res)
+		return shim.Error(res)
+	} else if !exist {
+		res := fmt.Sprintf("Chaincode Invoke endorseLoan failed : the loan is not existing, loan NO: %s", loanID)
+		res = getRetString(1, res)
 		return shim.Error(res)
 	}
+	
+	var loan Loan
+	dt.GetObject(loanID, &loan)
 
-	if loan.GuarantorName != args[1] {
+	if ! loan.ValidateGuarantorName(args[1]) {
 		res := getRetString(1, "Chaincode Invoke endorseLoan failed: guarantor's name is not same with current's")
 		return shim.Error(res)
 	}
@@ -839,13 +887,24 @@ func (sfb *SupplyFinance) rejectLoan(stub shim.ChaincodeStubInterface, args []st
 		return shim.Error(res)
 	}
 
-	loan, ok := getLoanObj(stub, args[0])
-	if ok == ObjectNew || ok == AnyError {
-		res := getRetString(1, "Chaincode Invoke rejectLoan get loan error")
+	loanID := args[0]
+	dt := DocTable{"loan", stub}
+	
+	exist, err := dt.IsObjectExist(loanID)
+	if err != nil {
+		res := fmt.Sprintf("Chaincode Invoke rejectLoan failed : %s", err.Error())
+		res = getRetString(1, res)
+		return shim.Error(res)
+	} else if !exist {
+		res := fmt.Sprintf("Chaincode Invoke rejectLoan failed : the loan is not existing, loan NO: %s", loanID)
+		res = getRetString(1, res)
 		return shim.Error(res)
 	}
+	
+	var loan Loan
+	dt.GetObject(loanID, &loan)
 
-	if loan.GuarantorName != args[1] {
+	if ! loan.ValidateGuarantorName(args[1]) {
 		res := getRetString(1, "Chaincode Invoke rejectLoan failed: guarantor's name is not same with current's")
 		return shim.Error(res)
 	}
@@ -879,11 +938,22 @@ func (sfb *SupplyFinance) refuseLoan(stub shim.ChaincodeStubInterface, args []st
 		return shim.Error(res)
 	}
 
-	loan, ok := getLoanObj(stub, lr.LoanID)
-	if ok == ObjectNew || ok == AnyError {
-		res := getRetString(1, "Chaincode Invoke refuseLoan get loan error")
+	loanID := lr.LoanID
+	dt := DocTable{"loan", stub}
+	
+	exist, err := dt.IsObjectExist(loanID)
+	if err != nil {
+		res := fmt.Sprintf("Chaincode Invoke refuseLoan failed : %s", err.Error())
+		res = getRetString(1, res)
+		return shim.Error(res)
+	} else if !exist {
+		res := fmt.Sprintf("Chaincode Invoke refuseLoan failed : the loan is not existing, loan NO: %s", loanID)
+		res = getRetString(1, res)
 		return shim.Error(res)
 	}
+	
+	var loan Loan
+	dt.GetObject(loanID, &loan)
 
 	if loan.OwnerName != lr.OwnerName {
 		res := getRetString(1, "Chaincode Invoke refuseLoan failed: owner's name is not same with current's")
@@ -918,20 +988,35 @@ func (sfb *SupplyFinance) makeLoan(stub shim.ChaincodeStubInterface, args []stri
 		return shim.Error(res)
 	}
 
-	loan, ok := getLoanObj(stub, args[0])
-	if ok == ObjectNew || ok == AnyError {
-		res := getRetString(1, "Chaincode Invoke makeLoan get loan error")
+	loanID := args[0]
+	dt := DocTable{"loan", stub}
+	
+	exist, err := dt.IsObjectExist(loanID)
+	if err != nil {
+		res := fmt.Sprintf("Chaincode Invoke makeLoan failed : %s", err.Error())
+		res = getRetString(1, res)
+		return shim.Error(res)
+	} else if !exist {
+		res := fmt.Sprintf("Chaincode Invoke makeLoan failed : the loan is not existing, loan NO: %s", loanID)
+		res = getRetString(1, res)
 		return shim.Error(res)
 	}
+	
+	var loan Loan
+	dt.GetObject(loanID, &loan)
 
-	if loan.BankName != args[1] {
+	if ! loan.ValidateBankName(args[1]) {
 		res := getRetString(1, "Chaincode Invoke makeLoan failed: bank's name is not same with current's")
 		return shim.Error(res)
 	}
 
-	lr, ok := getLoanRepaymentObj(stub, loan.LoanID)
-	if ok == AnyError {
-		res := getRetString(1, "Chaincode Invoke makeLoan get loan-repayment error")
+	dt = DocTable{"loan_repayment", stub}	
+	lr := LoanRepayment{LoanID: loan.LoanID}
+	
+	err = dt.GetObject(loan.LoanID, &lr)
+	if err != nil {
+		res := fmt.Sprintf("Chaincode Invoke makeLoan failed : %s", err.Error())
+		res = getRetString(1, res)
 		return shim.Error(res)
 	}
 	
@@ -973,13 +1058,24 @@ func (sfb *SupplyFinance) approveLoan(stub shim.ChaincodeStubInterface, args []s
 		return shim.Error(res)
 	}
 
-	loan, ok := getLoanObj(stub, lr.LoanID)
-	if ok == ObjectNew || ok == AnyError {
-		res := getRetString(1, "Chaincode Invoke approveLoan get loan error")
+	loanID := lr.LoanID
+	dt := DocTable{"loan", stub}
+	
+	exist, err := dt.IsObjectExist(loanID)
+	if err != nil {
+		res := fmt.Sprintf("Chaincode Invoke approveLoan failed : %s", err.Error())
+		res = getRetString(1, res)
+		return shim.Error(res)
+	} else if !exist {
+		res := fmt.Sprintf("Chaincode Invoke approveLoan failed : the loan is not existing, loan NO: %s", loanID)
+		res = getRetString(1, res)
 		return shim.Error(res)
 	}
+	
+	var loan Loan
+	dt.GetObject(loanID, &loan)
 
-	if loan.OwnerName != lr.OwnerName {
+	if ! loan.ValidateOwnerName(lr.OwnerName) {
 		res := getRetString(1, "Chaincode Invoke approveLoan failed: owner's name is not same with current's")
 		return shim.Error(res)
 	}
@@ -1019,25 +1115,40 @@ func (sfb *SupplyFinance) prepayLoan(stub shim.ChaincodeStubInterface, args []st
 		return shim.Error(res)
 	}
 
-	loan, ok := getLoanObj(stub, args[0])
-	if ok == ObjectNew || ok == AnyError {
-		res := getRetString(1, "Chaincode Invoke prepayLoan get loan error")
+	loanID := args[0]
+	dt := DocTable{"loan", stub}
+	
+	exist, err := dt.IsObjectExist(loanID)
+	if err != nil {
+		res := fmt.Sprintf("Chaincode Invoke prepayLoan failed : %s", err.Error())
+		res = getRetString(1, res)
+		return shim.Error(res)
+	} else if !exist {
+		res := fmt.Sprintf("Chaincode Invoke prepayLoan failed : the loan is not existing, loan NO: %s", loanID)
+		res = getRetString(1, res)
 		return shim.Error(res)
 	}
 	
-	if loan.OwnerName != args[1] {
+	var loan Loan
+	dt.GetObject(loanID, &loan)
+	
+	if ! loan.ValidateOwnerName(args[1]) {
 		res := getRetString(1, "Chaincode Invoke prepayLoan failed: loan owner's name is not same with current's")
 		return shim.Error(res)
 	}
 	
-	if loan.State != LoanApproved && loan.State != LoanLoaned {
+	if ! loan.ValidateState(LoanApproved) && ! loan.ValidateState(LoanLoaned) {
 		res := getRetString(1, "Chaincode Invoke prepayLoan failed: loan's state is not expected status, needed: 'approved' or 'loaned'")
 		return shim.Error(res)
 	}
 	
-	lr, ok := getLoanRepaymentObj(stub, loan.LoanID)
-	if ok == AnyError {
-		res := getRetString(1, "Chaincode Invoke prepayLoan get loan-repayment error")
+	dt = DocTable{"loan_repayment", stub}	
+	lr := LoanRepayment{LoanID: loan.LoanID}
+	
+	err = dt.GetObject(loan.LoanID, &lr)
+	if err != nil {
+		res := fmt.Sprintf("Chaincode Invoke prepayLoan failed : %s", err.Error())
+		res = getRetString(1, res)
 		return shim.Error(res)
 	}
 	
@@ -1066,13 +1177,24 @@ func (sfb *SupplyFinance) applyLoanAfterGuarantee(stub shim.ChaincodeStubInterfa
 		return shim.Error(res)
 	}
 
-	loan, ok := getLoanObj(stub, args[0])
-	if ok == ObjectNew || ok == AnyError {
-		res := getRetString(1, "Chaincode Invoke applyLoanAfterGuarantee get loan error")
+	loanID := args[0]
+	dt := DocTable{"loan", stub}
+	
+	exist, err := dt.IsObjectExist(loanID)
+	if err != nil {
+		res := fmt.Sprintf("Chaincode Invoke applyLoanAfterGuarantee failed : %s", err.Error())
+		res = getRetString(1, res)
+		return shim.Error(res)
+	} else if !exist {
+		res := fmt.Sprintf("Chaincode Invoke applyLoanAfterGuarantee failed : the loan is not existing, loan NO: %s", loanID)
+		res = getRetString(1, res)
 		return shim.Error(res)
 	}
-
-	if loan.OwnerName != args[1] {
+	
+	var loan Loan
+	dt.GetObject(loanID, &loan)
+	
+	if ! loan.ValidateOwnerName(args[1]) {
 		res := getRetString(1, "Chaincode Invoke applyLoanAfterGuarantee failed: owner's name is not same with current's")
 		return shim.Error(res)
 	}
@@ -1096,10 +1218,11 @@ func setLoanStateThenPut(stub shim.ChaincodeStubInterface, loan *Loan, expected_
 	// 更改票据状态
 	loan.State = set_state
 
-	// 保存贷款
-	_, ok := putObj(stub, loan.composeKey("loan"), *loan)
-	if !ok {
-		return "Chaincode Invoke set loan state failed", false
+	dt := DocTable{"loan", stub}
+	// 保存
+	err := dt.SaveObject(loan.LoanID, *loan)
+	if err != nil {
+		return err.Error(), false
 	}
 
 	return "invoke success", true
@@ -1112,15 +1235,26 @@ func (sfb *SupplyFinance) endorseContract(stub shim.ChaincodeStubInterface, args
 		res := getRetString(1, "Chaincode Invoke endorse args count expecting 3")
 		return shim.Error(res)
 	}
-	// 根据票号取得票据
-	ct, ok := getContractObj(stub, args[0])
-	if ok == AnyError || ok == ObjectNew {
-		res := getRetString(1, "Chaincode Invoke endorse get contract error")
+	
+	contractID := args[0]
+	dt := DocTable{"contract", stub}
+	
+	exist, err := dt.IsObjectExist(contractID)
+	if err != nil {
+		res := fmt.Sprintf("Chaincode Invoke endorseContract failed : %s", err.Error())
+		res = getRetString(1, res)
+		return shim.Error(res)
+	} else if !exist {
+		res := fmt.Sprintf("Chaincode Invoke endorseContract failed : the contract is not existing, contract NO: %s", contractID)
+		res = getRetString(1, res)
 		return shim.Error(res)
 	}
+	
+	var ct Contract
+	dt.GetObject(contractID, &ct)
 
-	if ct.DraweeName != args[1] {
-		res := getRetString(1, "Chaincode Invoke endorse failed: Endorser is not same with current drawee")
+	if ! ct.ValidateDraweeName(args[1]) {
+		res := getRetString(1, "Chaincode Invoke endorseContract failed: Endorser is not same with current drawee")
 		return shim.Error(res)
 	}
 
@@ -1161,19 +1295,20 @@ func (sfb *SupplyFinance) endorseContract(stub shim.ChaincodeStubInterface, args
 func setContractStateThenPut(stub shim.ChaincodeStubInterface, ct *Contract, expected_state, set_state string) (string, bool){
 	// 检查票据当前状态
 	if ct.State != expected_state {
-		res := fmt.Sprintf("Chaincode Invoke failed: due to contract's state, current state: %s", ct.State)
+		res := fmt.Sprintf("Chaincode Invoke setContractStateThenPut failed: due to contract's state, current state: %s", ct.State)
 		return res, false
 	}
 
 	// 更改票据状态
 	ct.State = set_state
 
-	// 保存票据
-	_, ok := putObj(stub, ct.composeKey("contract"), *ct)
-	if !ok {
-		return "Chaincode Invoke set contract state failed", false
+	dt := DocTable{"contract", stub}
+	// 保存
+	err := dt.SaveObject(ct.ContractID, *ct)
+	if err != nil {
+		return err.Error(), false
 	}
-
+	
 	return "invoke success", true
 }
 
@@ -1193,31 +1328,45 @@ func (sfb *SupplyFinance) transferBill(stub shim.ChaincodeStubInterface, args []
 	}
 	
 	// 根据票号取得票据
-	bill, ok := getBillObj(stub, ti.BillID)
-	if ok == ObjectNew || ok == AnyError {
-		res := getRetString(1, "Chaincode Invoke transferBill get bill error")
+	dt := DocTable{"bill", stub}
+	
+	exist, err := dt.IsObjectExist(ti.BillID)
+	if err != nil {
+		res := fmt.Sprintf("Chaincode Invoke transferBill failed : %s", err.Error())
+		res = getRetString(1, res)
+		return shim.Error(res)
+	} else if !exist {
+		res := fmt.Sprintf("Chaincode Invoke transferBill failed : the bill is not existing, bill NO: %s", ti.BillID)
+		res = getRetString(1, res)
 		return shim.Error(res)
 	}
+	
+	var bill Bill
+	dt.GetObject(ti.BillID, &bill)
 
-	if bill.OwnerName != ti.OldOwnerName {
+	if ! bill.ValidateOwnerName(ti.OldOwnerName) {
 		res := getRetString(1, "Chaincode Invoke transferBill failed: the owner of bill is not same with current's")
 		return shim.Error(res)
 	}
 	
-	if bill.OwnerName == ti.NewOwnerName || bill.Owner == ti.NewOwner {
+	if bill.ValidateOwnerName(ti.NewOwnerName) || bill.ValidateOwner(ti.NewOwner) {
 		res := getRetString(1, "Chaincode Invoke transferBill failed: the bill should not transfer to self")
 		return shim.Error(res)
 	}
 	
-	if bill.State != Endorsed {
+	if ! bill.ValidateState(Endorsed) {
 		res := getRetString(1, "Chaincode Invoke transferBill failed: The bill can not be transferred, due to it's state.")
 		return shim.Error(res)
 	}
 
 	// 根据票号取得票据流转信息
-	bt, ok := getBillTransferObj(stub, ti.BillID)
-	if ok == AnyError {
-		res := getRetString(1, "Chaincode Invoke transferBill get BillTransfer error")
+	dt = DocTable{"bill_transfer", stub}	
+	bt := BillTransfer{BillID: ti.BillID, Count: 0, Transfers: make(map[int]TransferInfoArg)}
+	
+	err = dt.GetObject(ti.BillID, &bt)
+	if err != nil {
+		res := fmt.Sprintf("Chaincode Invoke transferBill failed : %s", err.Error())
+		res = getRetString(1, res)
 		return shim.Error(res)
 	}
 	
@@ -1253,26 +1402,32 @@ func setBillTransferThenPut(stub shim.ChaincodeStubInterface, bt *BillTransfer, 
 	bt.Count += 1
 	bt.Transfers[bt.Count] = ti
 
-	// 如果不存在，则创建记录；如果已经存在，则用新值更新
-	_, ok := putObj(stub, bt.composeKey("bill_transfer"), bt)
-	if !ok {
-		return "Chaincode Invoke setBillTransferThenPut put bytes failed", false
+	dt := DocTable{"bill_transfer", stub}
+	// 保存
+	err := dt.SaveObject(bt.BillID, *bt)
+	if err != nil {
+		return err.Error(), false
 	}
 
 	return "invoke success", true
 }
 
 func setTransferredBillThenPut(stub shim.ChaincodeStubInterface, bill *Bill) (string, bool){
-	tb, ok := getTransferredBillObj(stub, bill.Owner)
-	if ok == AnyError {
-		return "Chaincode Invoke setTransferredBillThenPut error", false
+	dt := DocTable{"transferred_bill", stub}	
+	tb := TransferredBill{Owner: bill.Owner}
+	
+	err := dt.GetObject(bill.Owner, &tb)
+	if err != nil {
+		return err.Error(), false
 	}
 	
 	tb.Bills = append(tb.Bills, bill.BillID)
-	// 如果不存在，则创建记录；如果已经存在，则用新值更新
-	_, ok2 := putObj(stub, tb.composeKey("transferred_bill"), tb)
-	if !ok2 {
-		return "Chaincode Invoke setBillTransferThenPut put bytes failed", false
+
+	dt = DocTable{"transferred_bill", stub}
+	// 保存
+	err = dt.SaveObject(tb.Owner, tb)
+	if err != nil {
+		return err.Error(), false
 	}
 
 	return "invoke success", true
@@ -1288,18 +1443,29 @@ func (sfb *SupplyFinance) redeemBill(stub shim.ChaincodeStubInterface, args []st
 //  args: 0 - Bill_No ; 1 - Drawee Name 
 func (sfb *SupplyFinance) endorseBill(stub shim.ChaincodeStubInterface, args []string) pb.Response {
 	if len(args) != 2 {
-		res := getRetString(1, "Chaincode Invoke endorse args count expecting 2")
+		res := getRetString(1, "Chaincode Invoke endorseBill args count expecting 2")
 		return shim.Error(res)
 	}
 	// 根据票号取得票据
-	bill, ok := getBillObj(stub, args[0])
-	if ok == ObjectNew || ok == AnyError{
-		res := getRetString(1, "Chaincode Invoke endorse get bill error")
+	billID := args[0]
+	dt := DocTable{"bill", stub}
+	
+	exist, err := dt.IsObjectExist(billID)
+	if err != nil {
+		res := fmt.Sprintf("Chaincode Invoke endorseBill failed : %s", err.Error())
+		res = getRetString(1, res)
+		return shim.Error(res)
+	} else if !exist {
+		res := fmt.Sprintf("Chaincode Invoke endorseBill failed : the bill is not existing, bill NO: %s", billID)
+		res = getRetString(1, res)
 		return shim.Error(res)
 	}
+	
+	var bill Bill
+	dt.GetObject(billID, &bill)
 
-	if bill.DraweeName != args[1] {
-		res := getRetString(1, "Chaincode Invoke endorse failed: Endorser is not same with current drawee")
+	if ! bill.ValidateDraweeName(args[1]) {
+		res := getRetString(1, "Chaincode Invoke endorseBill failed: Endorser is not same with current drawee")
 		return shim.Error(res)
 	}
 
@@ -1316,17 +1482,18 @@ func (sfb *SupplyFinance) endorseBill(stub shim.ChaincodeStubInterface, args []s
 func setBillStateThenPut(stub shim.ChaincodeStubInterface, bill *Bill, expected_state, set_state string) (string, bool){
 	// 检查票据当前状态
 	if bill.State != expected_state {
-		res := fmt.Sprintf("Chaincode Invoke failed: due to bill's state, current state: %s", bill.State)
+		res := fmt.Sprintf("Chaincode Invoke setBillStateThenPut failed: due to bill's state, current state: %s", bill.State)
 		return res, false
 	}
 
 	// 更改票据状态
 	bill.State = set_state
 
-	// 保存票据
-	_, ok := putObj(stub, bill.composeKey("bill"), *bill)
-	if !ok {
-		return "Chaincode Invoke set bill state failed", false
+	dt := DocTable{"bill", stub}
+	// 保存
+	err := dt.SaveObject(bill.BillID, *bill)
+	if err != nil {
+		return err.Error(), false
 	}
 
 	return "invoke success", true
@@ -1336,19 +1503,29 @@ func setBillStateThenPut(stub shim.ChaincodeStubInterface, bill *Bill, expected_
 //  args: 0 - Contract_No ; 1 - Drawee Name ; 2 - Rejected Reason
 func (sfb *SupplyFinance) rejectContract(stub shim.ChaincodeStubInterface, args []string) pb.Response {
 	if len(args) != 3 {
-		res := getRetString(1, "Chaincode Invoke reject args count expecting 3")
+		res := getRetString(1, "Chaincode Invoke rejectContract args count expecting 3")
 		return shim.Error(res)
 	}
 
-	// 根据票号取得票据
-	contract, ok := getContractObj(stub, args[0])
-	if ok == AnyError || ok == ObjectNew {
-		res := getRetString(1, "Chaincode Invoke reject get contract error")
+	contractID := args[0]
+	dt := DocTable{"contract", stub}
+	
+	exist, err := dt.IsObjectExist(contractID)
+	if err != nil {
+		res := fmt.Sprintf("Chaincode Invoke rejectContract failed : %s", err.Error())
+		res = getRetString(1, res)
+		return shim.Error(res)
+	} else if !exist {
+		res := fmt.Sprintf("Chaincode Invoke rejectContract failed : the contract is not existing, contract NO: %s", contractID)
+		res = getRetString(1, res)
 		return shim.Error(res)
 	}
+	
+	var contract Contract
+	dt.GetObject(contractID, &contract)
 
-	if contract.DraweeName != args[1] {
-		res := getRetString(1, "Chaincode Invoke endorse failed: Endorser is not same with current drawee")
+	if ! contract.ValidateDraweeName(args[1]) {
+		res := getRetString(1, "Chaincode Invoke rejectContract failed: Endorser is not same with current drawee")
 		return shim.Error(res)
 	}
 
@@ -1368,19 +1545,30 @@ func (sfb *SupplyFinance) rejectContract(stub shim.ChaincodeStubInterface, args 
 //  args: 0 - Bill_No ; 1 - Drawee Name 
 func (sfb *SupplyFinance) rejectBill(stub shim.ChaincodeStubInterface, args []string) pb.Response {
 	if len(args) != 2 {
-		res := getRetString(1, "Chaincode Invoke reject args count expecting 2")
+		res := getRetString(1, "Chaincode Invoke rejectBill args count expecting 2")
 		return shim.Error(res)
 	}
 
 	// 根据票号取得票据
-	bill, ok := getBillObj(stub, args[0])
-	if ok == ObjectNew || ok == AnyError {
-		res := getRetString(1, "Chaincode Invoke reject get bill error")
+	billID := args[0]
+	dt := DocTable{"bill", stub}
+	
+	exist, err := dt.IsObjectExist(billID)
+	if err != nil {
+		res := fmt.Sprintf("Chaincode Invoke rejectBill failed : %s", err.Error())
+		res = getRetString(1, res)
+		return shim.Error(res)
+	} else if !exist {
+		res := fmt.Sprintf("Chaincode Invoke rejectBill failed : the bill is not existing, bill NO: %s", billID)
+		res = getRetString(1, res)
 		return shim.Error(res)
 	}
+	
+	var bill Bill
+	dt.GetObject(billID, &bill)
 
-	if bill.DraweeName != args[1] {
-		res := getRetString(1, "Chaincode Invoke endorse failed: Endorser is not same with current drawee")
+	if ! bill.ValidateDraweeName(args[1]) {
+		res := getRetString(1, "Chaincode Invoke rejectBill failed: Endorser is not same with current drawee")
 		return shim.Error(res)
 	}
 
@@ -1396,13 +1584,20 @@ func (sfb *SupplyFinance) rejectBill(stub shim.ChaincodeStubInterface, args []st
 
 func tryUpdateBillForLoan(stub shim.ChaincodeStubInterface, bill_id string, expected_state, set_state string) (string, bool) {
 	// 根据票号取得票据
-	bill, ok := getBillObj(stub, bill_id)
-	if ok == ObjectNew || ok == AnyError {
-		msg := fmt.Sprintf("Chaincode tryUpdateBillForLoan failed: the bill is not existing, bill NO: %s", bill_id)
-		return msg, false
+	dt := DocTable{"bill", stub}
+	
+	exist, err := dt.IsObjectExist(bill_id)
+	if err != nil {
+		return err.Error(), false
+	} else if !exist {
+		res := fmt.Sprintf("Chaincode Invoke tryUpdateBillForLoan failed : the bill is not existing, bill NO: %s", bill_id)
+		return res, false
 	}
+	
+	var bill Bill
+	dt.GetObject(bill_id, &bill)
 
-	if bill.DueDate < time.Now().Unix() {
+	if ! bill.ValidateDueDate() {
 		return "Chaincode tryUpdateBillForLoan failed: the bill is expired", false
 	}
 
@@ -1413,25 +1608,36 @@ func tryUpdateBillForLoan(stub shim.ChaincodeStubInterface, bill_id string, expe
 //  args: 0 - Bill_No ; 1 - Owner
 func (sfb *SupplyFinance) abolishBill(stub shim.ChaincodeStubInterface, args []string) pb.Response {
 	if len(args) != 2 {
-		res := getRetString(1, "Chaincode Invoke abolish args count expecting 2")
+		res := getRetString(1, "Chaincode Invoke abolishBill args count expecting 2")
 		return shim.Error(res)
 	}
 
 	// 根据票号取得票据
-	bill, b1 := getBillObj(stub, args[0])
-	if b1 == ObjectNew || b1 == AnyError {
-		res := getRetString(1, "Chaincode Invoke abolish get bill error")
+	billID := args[0]
+	dt := DocTable{"bill", stub}
+	
+	exist, err := dt.IsObjectExist(billID)
+	if err != nil {
+		res := fmt.Sprintf("Chaincode Invoke abolishBill failed : %s", err.Error())
+		res = getRetString(1, res)
+		return shim.Error(res)
+	} else if !exist {
+		res := fmt.Sprintf("Chaincode Invoke abolishBill failed : the bill is not existing, bill NO: %s", billID)
+		res = getRetString(1, res)
 		return shim.Error(res)
 	}
+	
+	var bill Bill
+	dt.GetObject(billID, &bill)
 
-	if bill.OwnerName != args[1] {
-		res := getRetString(1, "Chaincode Invoke abolish failed: owner is not same with current owner")
+	if ! bill.ValidateOwnerName(args[1]) {
+		res := getRetString(1, "Chaincode Invoke abolishBill failed: owner is not same with current owner")
 		return shim.Error(res)
 	}
 
 	// 已经抵押贷款和被拆分的票据不运行作废
-	if bill.State == BillMorgaged || bill.State == BillSplit {
-		res := fmt.Sprintf("Chaincode Invoke abolish failed: The bill can not be abolished due to bill's state, current state: %s", bill.State)
+	if bill.ValidateState(BillMorgaged) || bill.ValidateState(BillSplit) {
+		res := fmt.Sprintf("Chaincode Invoke abolishBill failed: The bill can not be abolished due to bill's state, current state: %s", bill.State)
 		res = getRetString(1, res)
 		return shim.Error(res)
 	}
@@ -1439,11 +1645,10 @@ func (sfb *SupplyFinance) abolishBill(stub shim.ChaincodeStubInterface, args []s
 	// 更改票据状态为拒绝背书担保
 	bill.State = BillAbolished
 
-	// 保存票据
-	_, ok := putObj(stub, bill.composeKey("bill"), bill)
-	if !ok {
-		res := getRetString(1, "Chaincode Invoke abolish put bill failed")
-		return shim.Error(res)
+	// 保存
+	err = dt.SaveObject(billID, bill)
+	if err != nil {
+		return shim.Error(err.Error())
 	}
 
 	res := getRetByte(0, "invoke accept success")
@@ -1476,7 +1681,7 @@ func (sfb *SupplyFinance) abolishBill(stub shim.ChaincodeStubInterface, args []s
 */
 func (sfb *SupplyFinance) splitBill(stub shim.ChaincodeStubInterface, args []string) pb.Response {
 	if len(args) != 1 {
-		res := getRetString(1, "Chaincode Invoke split args count expecting 1")
+		res := getRetString(1, "Chaincode Invoke splitBill args count expecting 1")
 		return shim.Error(res)
 	}
 
@@ -1484,44 +1689,53 @@ func (sfb *SupplyFinance) splitBill(stub shim.ChaincodeStubInterface, args []str
 	err := json.Unmarshal([]byte(args[0]), &bsi)
 
 	if err != nil {
-		res := getRetString(1, "Chaincode Invoke split unmarshal failed")
+		res := getRetString(1, "Chaincode Invoke splitBill unmarshal failed")
 		return shim.Error(res)
 	}
 
-	b, exist := getBillObj(stub, bsi.BillID)
-	if exist == ObjectNew || exist == AnyError {
-		res := fmt.Sprintf("Chaincode Invoke split failed : the bill is not existing, bill NO: %s", bsi.BillID)
+	var b Bill
+	dt := DocTable{"bill", stub}
+	
+	exist, err := dt.IsObjectExist(bsi.BillID)
+	if err != nil {
+		res := fmt.Sprintf("Chaincode Invoke splitBill failed : %s", err.Error())
+		res = getRetString(1, res)
+		return shim.Error(res)
+	} else if !exist {
+		res := fmt.Sprintf("Chaincode Invoke splitBill failed : the bill is not existing, bill NO: %s", bsi.BillID)
 		res = getRetString(1, res)
 		return shim.Error(res)
 	}
+	
+	dt.GetObject(bsi.BillID, &b)
 
-	if b.OwnerName != bsi.OwnerName {
-		res := getRetString(1, "Chaincode Invoke split failed: owner is not same with current owner")
+	if ! b.ValidateOwnerName(bsi.OwnerName) {
+		res := getRetString(1, "Chaincode Invoke splitBill failed: owner is not same with current owner")
 		return shim.Error(res)
 	}
 
-	if b.SplitCount >= SplitThreshold {
-		res := fmt.Sprintf("Chaincode Invoke split failed : the original bill has been spit up to max times, current threshold: %d", SplitThreshold)
+	if ! b.ValidateSplitCount(SplitThreshold) {
+		res := fmt.Sprintf("Chaincode Invoke splitBill failed : the original bill has been spit up to max times, current threshold: %d", SplitThreshold)
 		res = getRetString(1, res)
 		return shim.Error(res)
 	}
 
 	// 只有通过背书担保的票据才能拆分
-	if b.State != Endorsed{
-		res := fmt.Sprintf("Chaincode Invoke split failed: The bill can not be split due to bill's state, current state: %s", b.State)
+	if ! b.ValidateState(Endorsed) {
+		res := fmt.Sprintf("Chaincode Invoke splitBill failed: The bill can not be split due to bill's state, current state: %s", b.State)
 		res = getRetString(1, res)
 		return shim.Error(res)
 	}
 
 	sumAmount := bsi.SumAmountOfChildBill()
 	if b.Amount != sumAmount {
-		res := fmt.Sprintf("Chaincode Invoke split failed: The total amount of all child bills is not equal the parent's amount")
+		res := fmt.Sprintf("Chaincode Invoke splitBill failed: The total amount of all child bills is not equal the parent's amount")
 		res = getRetString(1, res)
 		return shim.Error(res)
 	}
 
 	if len(bsi.Childs) < 2 {
-		res := getRetString(1, "Chaincode Invoke split failed: at least 2 Sub-Bills are required")
+		res := getRetString(1, "Chaincode Invoke splitBill failed: at least 2 Sub-Bills are required")
 		return shim.Error(res)
 	}
 
@@ -1545,10 +1759,12 @@ func (sfb *SupplyFinance) splitBill(stub shim.ChaincodeStubInterface, args []str
 	}
 
 	b.State = BillSplit
-	_, ok := putObj(stub, b.composeKey("bill"), b)
-	if !ok {
-		res := getRetString(1, "Chaincode Invoke split save bill failed")
-		return shim.Error(res)
+	
+	dt = DocTable{"bill", stub}
+	// 保存
+	err = dt.SaveObject(b.BillID, b)
+	if err != nil {
+		return shim.Error(err.Error())
 	}
 
 	msg, ok := putBillChild(stub, bsi.BillID, child_bills)
@@ -1566,10 +1782,11 @@ func putBillChild(stub shim.ChaincodeStubInterface, parent_id string, child_bill
 	bc.ParentID = parent_id
 	bc.Childs = child_bills
 
-	key := bc.composeKey("bill_child")
-	_, ok := putObj(stub, key, bc)
-	if !ok {
-		return "Chaincode Invoke split save bill parent->childs relationship failed", false
+	dt := DocTable{"bill_child", stub}
+	// 保存
+	err := dt.SaveObject(bc.ParentID, bc)
+	if err != nil {
+		return err.Error(), false
 	}
 
 	return "Invoke success", true
@@ -1768,14 +1985,17 @@ func (t *SupplyFinance) queryTXChainForBill(stub shim.ChaincodeStubInterface, ar
 }
 
 // 根据ID查询拆分后的子票据
-// args: 0 - 票据ID
+// args: 0 - Table Name; 1 - id
 func (sfb *SupplyFinance) queryBillChilds(stub shim.ChaincodeStubInterface, args []string) pb.Response {
 	if len(args) != 1 {
 		res := getRetString(1, "Chaincode queryBillChilds args != 1")
 		return shim.Error(res)
 	}
 
-	key := SF_TABLES["bill_child"] + args[0]
+	table_name := args[0]
+	id := args[1]
+	key := SF_TABLES[table_name] + id
+	
 	objBytes, err := stub.GetState(key)
 	if  err != nil {
 		res := fmt.Sprintf("Chaincode queryBillChilds failed: %s", err.Error())
@@ -1791,22 +2011,24 @@ func (sfb *SupplyFinance) queryBillChilds(stub shim.ChaincodeStubInterface, args
 }
 
 // 根据ID查询记录
-// args: 0 - id
+// args: 0 - Table Name; 1 - id
 func (sfb *SupplyFinance) queryByID(stub shim.ChaincodeStubInterface, args []string) pb.Response {
 	if len(args) != 2 {
 		res := getRetString(1, "Chaincode queryByID args != 2")
 		return shim.Error(res)
 	}
 	
-	table_name := args[0]
-	if _,ok := SF_TABLES[table_name]; !ok {
-		res := fmt.Sprintf("Chaincode queryByID failed: the table[%s] is not exist.", table_name)
+	tableName := args[0]
+	id := args[1]
+	dt := DocTable{tableName, stub}
+	
+	if exist := dt.IsTableExist(); !exist {
+		res := fmt.Sprintf("Chaincode queryByID failed: the table[%s] is not exist.", tableName)
 		res = getRetString(1, res)
 		return shim.Error(res)
 	}
 
-	key := SF_TABLES[table_name] + args[1]
-	objBytes, err := stub.GetState(key)
+	objBytes, err := dt.GetObjectBytes(id)
 	if  err != nil {
 		res := fmt.Sprintf("Chaincode queryByID failed: %s", err.Error())
 		res = getRetString(1, res)
