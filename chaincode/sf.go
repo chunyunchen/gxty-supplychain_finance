@@ -52,7 +52,7 @@ type Loan struct {
 	BankName	string	`json:"ln_bank_name,omitempty"`		//金融机构名称
 	RepaymentDate   int64	`json:"repayment_date"`			//还款时间
 	RefuseReason	string	`json:"refused_reason,omitempty"`	//拒绝贷款原因
-	ApplyDate	int64	`json:"apply_date"`	//贷款申请时间
+	ApplyDate	int64	`json:"apply_date"`	//贷款申请/创建时间
 }
 
 func (ln Loan) ValidateGuarantorName(expectedV string) bool {
@@ -139,6 +139,7 @@ type Contract struct {
 	OwnerName	string	`json:"ct_owner_name"`	//持有人名称
 	State		string	`json:"ct_state"`		//合同状态
 	RefuseReason	string	`json:"refused_reason,omitempty"`	//拒绝担保合同原因
+	CreateDate	int64	`json:"ct_create_date"`//记录创建时间
 }
 
 func (ct Contract) ValidateDraweeName(expectedV string) bool {
@@ -169,6 +170,7 @@ type Bill struct {
 	State		string	`json:"state"`		//票据状态(omitempty,json反序列化显示给客户端时不返回空字段)
 	SplitCount	int32	`json:"split_count"`    //控制原始票据拆分次数，该值表示当前票据是通过几次拆分而生成的
 	Transferred	bool	`json:"transferred"`    //票据是否流转过，false - 没流转过的票据，true - 流转过的票据
+	CreateDate	int64	`json:"bill_create_date"`//记录创建时间
 }
 
 const(
@@ -284,6 +286,7 @@ type BillChild struct {
 type BillSplitInfoArg struct {
 	BillID		string		`json:"bill_id"`	//票据号
 	OwnerName	string		`json:"owner_name"`	//持票人名称
+	SplitDate	int64	`json:"split_date"`//票据拆分时间
 	Childs		[]BillChildArg	`json:"child_bills"`	//待拆分的票据
 }
 
@@ -529,9 +532,9 @@ func (sfb *SupplyFinance) Invoke(stub shim.ChaincodeStubInterface) pb.Response {
 	} else if function == "queryBillsWithPagination" {
 		// 按条件分页查询
 		return sfb.queryBillsWithPagination(stub, args)
-	} else if function == "queryTXChainForBill" {
+	} else if function == "queryTXChainForKey" {
 		// 查询票据或贷款的交易历史
-		return sfb.queryTXChainForBill(stub, args)
+		return sfb.queryTXChainForKey(stub, args)
 	}
 
 	res := getRetString(1, "Chaincode Unkown method!")
@@ -1229,7 +1232,7 @@ func setLoanStateThenPut(stub shim.ChaincodeStubInterface, loan *Loan, expected_
 }
 
 //endorseContract 担保合同
-//  args: 0 - Contract_No ; 1 - Drawee Name ; 2 - Bill ID
+//  args: 0 - Contract_No ; 1 - Drawee Name ; 2 - Bill ID ; 3 - Bill Created Date ;
 func (sfb *SupplyFinance) endorseContract(stub shim.ChaincodeStubInterface, args []string) pb.Response {
 	if len(args) != 3 {
 		res := getRetString(1, "Chaincode Invoke endorse args count expecting 3")
@@ -1281,6 +1284,12 @@ func (sfb *SupplyFinance) endorseContract(stub shim.ChaincodeStubInterface, args
 	bill.IssuerName = ct.IssuerName
 	bill.Owner = ct.Owner
 	bill.OwnerName = ct.OwnerName
+	
+	createDate, err := strconv.ParseInt(args[3], 10, 64)
+	if err != nil {
+		return shim.Error(err.Error())
+	}
+	bill.CreateDate = createDate
 
 	msg, ok2 = sfb.issueBillObj(stub, &bill, -1, Endorsed)
 	if !ok2 {
@@ -1743,6 +1752,7 @@ func (sfb *SupplyFinance) splitBill(stub shim.ChaincodeStubInterface, args []str
 
 	b_child := b
 	b_child.ParentID = bsi.BillID
+	b_child.CreateDate = bsi.SplitDate
 	for _, bc := range bsi.Childs {
 		b_child.BillID= bc.BillID
 		b_child.Owner = bc.Owner
@@ -1925,11 +1935,11 @@ func constructQueryResponseFromIterator(resultsIterator shim.StateQueryIteratorI
 	return &buffer, nil
 }
 
-//queryTXChainForBill 根据Key查询交易链
+//queryTXChainForKey 根据Key查询交易链
 //  0 - Table Name; 1 - ID ;
-func (t *SupplyFinance) queryTXChainForBill(stub shim.ChaincodeStubInterface, args []string) pb.Response {
+func (t *SupplyFinance) queryTXChainForKey(stub shim.ChaincodeStubInterface, args []string) pb.Response {
 	if len(args) != 2 {
-		return shim.Error("Chaincode query[queryTXChainForBill] failed: argument expecting 2")
+		return shim.Error("Chaincode query[queryTXChainForKey] failed: argument expecting 2")
 	}
 
 	table_name := args[0]
