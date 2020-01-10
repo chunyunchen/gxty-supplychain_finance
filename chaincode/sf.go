@@ -1234,8 +1234,8 @@ func setLoanStateThenPut(stub shim.ChaincodeStubInterface, loan *Loan, expected_
 //endorseContract 担保合同
 //  args: 0 - Contract_No ; 1 - Drawee Name ; 2 - Bill ID ; 3 - Bill Created Date ;
 func (sfb *SupplyFinance) endorseContract(stub shim.ChaincodeStubInterface, args []string) pb.Response {
-	if len(args) != 3 {
-		res := getRetString(1, "Chaincode Invoke endorse args count expecting 3")
+	if len(args) != 4 {
+		res := getRetString(1, "Chaincode Invoke endorse args count expecting 4")
 		return shim.Error(res)
 	}
 	
