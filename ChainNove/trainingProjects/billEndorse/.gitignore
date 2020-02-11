@@ -1,8 +1,0 @@
-**/node_modules/
-node_modules/*
-
-.idea/*
-
-.log
-.DS_Store
-*/.DS_Store
