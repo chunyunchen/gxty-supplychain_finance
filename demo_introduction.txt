@@ -1,6 +1,0 @@
-demo的代码为 github.com/ChainNove/trainingProjects   具体使用方法可以参照仓库中的文档
-
-另外在10.2.2.3 的机器（用户名密码为  wang/wang   root/wang）上 布置有demo环境  代码路径为/home/wang/go/src/github.com/ChainNova
-
-关于fabric环境搭建过程，网上资料很多，此文件夹中的《深度探索区块链：Hyperledger技术与应用》.pdf  中也有详细介绍，可以参考
-
